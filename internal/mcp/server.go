@@ -1649,7 +1649,7 @@ func (s *Server) handleIndexGitHistory(ctx context.Context, req mcp.CallToolRequ
 
 	// Update last indexed commit
 	if len(commits) > 0 {
-		historyStore.SetLastIndexedCommit(commits[0].Hash)
+		_ = historyStore.SetLastIndexedCommit(commits[0].Hash)
 	}
 
 	result := map[string]any{

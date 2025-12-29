@@ -303,7 +303,7 @@ func (w *Watcher) indexFile(ctx context.Context, path string) error {
 
 	if len(chunks) == 0 {
 		// Update cache even if no chunks
-		w.store.SetFileHash(path, file.Hash, w.configHash)
+		_ = w.store.SetFileHash(path, file.Hash, w.configHash)
 		return nil
 	}
 
@@ -344,14 +344,14 @@ func (w *Watcher) indexFile(ctx context.Context, path string) error {
 	}
 
 	if len(symbols) > 0 {
-		w.store.StoreSymbols(symbols)
+		_ = w.store.StoreSymbols(symbols)
 	}
 	if len(refs) > 0 {
-		w.store.StoreReferences(refs)
+		_ = w.store.StoreReferences(refs)
 	}
 
 	// Update cache
-	w.store.SetFileHash(path, file.Hash, w.configHash)
+	_ = w.store.SetFileHash(path, file.Hash, w.configHash)
 
 	relPath, _ := filepath.Rel(w.projectDir, path)
 	slog.Info("indexed file", "file", relPath, "chunks", len(chunks))

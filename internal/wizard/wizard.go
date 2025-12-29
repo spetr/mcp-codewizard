@@ -253,8 +253,9 @@ func (w *Wizard) detectSystem() SystemInfo {
 		out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
 		if err == nil {
 			var memBytes int64
-			fmt.Sscanf(string(out), "%d", &memBytes)
-			info.TotalRAM = formatBytes(memBytes)
+			if _, err := fmt.Sscanf(string(out), "%d", &memBytes); err == nil {
+				info.TotalRAM = formatBytes(memBytes)
+			}
 		}
 
 		// Check for GPU (Apple Silicon or discrete)
@@ -273,13 +274,15 @@ func (w *Wizard) detectSystem() SystemInfo {
 			for _, line := range lines {
 				if strings.HasPrefix(line, "MemTotal:") {
 					var kb int64
-					fmt.Sscanf(line, "MemTotal: %d kB", &kb)
-					info.TotalRAM = formatBytes(kb * 1024)
+					if _, err := fmt.Sscanf(line, "MemTotal: %d kB", &kb); err == nil {
+						info.TotalRAM = formatBytes(kb * 1024)
+					}
 				}
 				if strings.HasPrefix(line, "MemAvailable:") {
 					var kb int64
-					fmt.Sscanf(line, "MemAvailable: %d kB", &kb)
-					info.AvailableRAM = formatBytes(kb * 1024)
+					if _, err := fmt.Sscanf(line, "MemAvailable: %d kB", &kb); err == nil {
+						info.AvailableRAM = formatBytes(kb * 1024)
+					}
 				}
 			}
 		}
@@ -310,7 +313,7 @@ func (w *Wizard) detectProject() ProjectInfo {
 	var totalSize int64
 	var totalLines int
 
-	filepath.WalkDir(w.projectDir, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(w.projectDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}

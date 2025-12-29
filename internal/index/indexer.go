@@ -192,35 +192,6 @@ func (idx *Indexer) Index(ctx context.Context, force bool) error {
 	return nil
 }
 
-// chunkFile chunks a single file and extracts symbols/references.
-func (idx *Indexer) chunkFile(ctx context.Context, file *types.SourceFile) ([]*types.Chunk, []*types.Symbol, []*types.Reference, error) {
-	// Chunk the file
-	chunks, err := idx.chunker.Chunk(file)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("chunking failed: %w", err)
-	}
-
-	// Extract symbols
-	var symbols []*types.Symbol
-	if idx.config.Analysis.ExtractSymbols {
-		symbols, err = idx.chunker.ExtractSymbols(file)
-		if err != nil {
-			slog.Warn("symbol extraction failed", "file", file.Path, "error", err)
-		}
-	}
-
-	// Extract references
-	var refs []*types.Reference
-	if idx.config.Analysis.ExtractReferences {
-		refs, err = idx.chunker.ExtractReferences(file)
-		if err != nil {
-			slog.Warn("reference extraction failed", "file", file.Path, "error", err)
-		}
-	}
-
-	return chunks, symbols, refs, nil
-}
-
 // scanFiles scans the project for files to index.
 func (idx *Indexer) scanFiles(ctx context.Context) ([]*types.SourceFile, error) {
 	var files []*types.SourceFile
