@@ -42,6 +42,7 @@ import (
 	tstype "github.com/smacker/go-tree-sitter/typescript/typescript"
 	"github.com/smacker/go-tree-sitter/yaml"
 
+	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/pascal"
 	"github.com/spetr/mcp-codewizard/pkg/provider"
 	"github.com/spetr/mcp-codewizard/pkg/types"
 )
@@ -149,6 +150,8 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = toml.GetLanguage()
 	case "cue":
 		language = cue.GetLanguage()
+	case "pascal", "pas", "dpr", "pp", "delphi", "freepascal":
+		language = pascal.GetLanguage()
 	default:
 		return nil, nil, false
 	}
@@ -313,6 +316,8 @@ func (c *Chunker) classifyNode(nodeType string, node *sitter.Node, content strin
 		return c.classifyTOMLNode(nodeType, node, content)
 	case "cue":
 		return c.classifyCueNode(nodeType, node, content)
+	case "pascal", "pas", "dpr", "pp", "delphi", "freepascal":
+		return c.classifyPascalNode(nodeType, node, content)
 	}
 	return "", ""
 }
@@ -902,6 +907,38 @@ func (c *Chunker) classifyCueNode(nodeType string, node *sitter.Node, content st
 	return "", ""
 }
 
+func (c *Chunker) classifyPascalNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "declProc":
+		// Function or procedure declaration
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "declClass":
+		// Class declaration
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "declIntf":
+		// Interface declaration
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "declType":
+		// Type declaration (record, enum, etc.)
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeBlock, name
+	case "declVar":
+		// Variable declaration block
+		return types.ChunkTypeBlock, ""
+	case "declConst":
+		// Constant declaration block
+		return types.ChunkTypeBlock, ""
+	case "unit", "program", "library":
+		// Top-level unit/program/library declaration
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeBlock, name
+	}
+	return "", ""
+}
+
 // findChildByType finds a child node of the given type and returns its content.
 func (c *Chunker) findChildByType(node *sitter.Node, childType string, content string) string {
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -972,6 +1009,7 @@ func (c *Chunker) SupportedLanguages() []string {
 		"hcl", "tf", "terraform",
 		"elixir", "ex", "exs", "elm", "groovy", "gradle",
 		"ocaml", "ml", "mli", "toml", "cue",
+		"pascal", "pas", "dpr", "pp", "delphi", "freepascal",
 	}
 }
 
@@ -1085,6 +1123,8 @@ func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.S
 		sym = c.tomlNodeToSymbol(nodeType, node, content)
 	case "cue":
 		sym = c.cueNodeToSymbol(nodeType, node, content)
+	case "pascal", "pas", "dpr", "pp", "delphi", "freepascal":
+		sym = c.pascalNodeToSymbol(nodeType, node, content)
 	}
 
 	if sym != nil {
@@ -2021,6 +2061,79 @@ func (c *Chunker) cueNodeToSymbol(nodeType string, node *sitter.Node, content st
 		return &types.Symbol{
 			Name: label,
 			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) pascalNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "declProc":
+		// Function or procedure
+		name := c.findChildByType(node, "identifier", content)
+		// Check if it's a function or procedure by looking for kFunction/kProcedure
+		kind := types.SymbolKindFunction
+		nodeContent := content[node.StartByte():node.EndByte()]
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(nodeContent)), "procedure") {
+			kind = types.SymbolKindFunction
+		}
+		// Determine visibility - Pascal uses published/public/private/protected sections
+		visibility := "public"
+		if strings.HasPrefix(name, "_") {
+			visibility = "private"
+		}
+		return &types.Symbol{
+			Name:       name,
+			Kind:       kind,
+			Visibility: visibility,
+		}
+	case "declClass":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: "public",
+		}
+	case "declIntf":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindInterface,
+			Visibility: "public",
+		}
+	case "declType":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: "public",
+		}
+	case "declEnum":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: "public",
+		}
+	case "declConst":
+		// Constant declaration
+		name := c.findChildByType(node, "identifier", content)
+		if name != "" {
+			return &types.Symbol{
+				Name:       name,
+				Kind:       types.SymbolKindConstant,
+				Visibility: "public",
+			}
+		}
+	case "declVar":
+		// Variable declaration
+		name := c.findChildByType(node, "identifier", content)
+		if name != "" {
+			return &types.Symbol{
+				Name:       name,
+				Kind:       types.SymbolKindVariable,
+				Visibility: "public",
+			}
 		}
 	}
 	return nil

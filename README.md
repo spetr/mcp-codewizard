@@ -43,7 +43,7 @@ mcp-codewizard solves all of this by creating a local semantic index of your cod
 - **Plugin Architecture** - Swap embedding providers, chunking strategies, vector stores
 - **Incremental Indexing** - Only re-index changed files
 - **Parallel Processing** - Fast indexing using all CPU cores
-- **TreeSitter Parsing** - Language-aware code chunking for 33 languages
+- **TreeSitter Parsing** - Language-aware code chunking for 34 languages
 - **Local-First** - Everything runs on your machine with Ollama
 
 ## Quick Start
@@ -468,7 +468,7 @@ provider.RegisterEmbedding("my-provider", func(cfg provider.EmbeddingConfig) (pr
 
 ## Supported Languages
 
-TreeSitter chunking provides full AST-aware parsing for 33 languages:
+TreeSitter chunking provides full AST-aware parsing for 34 languages:
 
 | Language | Extensions | Symbol Extraction |
 |----------|------------|-------------------|
@@ -499,6 +499,7 @@ TreeSitter chunking provides full AST-aware parsing for 33 languages:
 | Elm | `.elm` | Modules, functions, types, type aliases |
 | Groovy | `.groovy`, `.gradle` | Classes, methods, closures |
 | OCaml | `.ml`, `.mli` | Modules, functions, types, values |
+| Pascal/Delphi | `.pas`, `.dpr`, `.pp` | Functions, procedures, classes, interfaces |
 | TOML | `.toml` | Tables, arrays, key-value pairs |
 | Cue | `.cue` | Definitions, fields, packages |
 | **HTML** | `.html`, `.htm`, `.xhtml` | Embedded JavaScript extraction |
