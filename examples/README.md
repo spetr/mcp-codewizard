@@ -11,6 +11,7 @@ examples/
 │   ├── analysis.md    # Code analysis (complexity, dead code, blame)
 │   └── navigation.md  # Symbol and call graph navigation
 └── workflows/         # Complete workflow scenarios
+    ├── setup.md       # First-time project setup
     ├── onboarding.md  # Getting familiar with a new codebase
     ├── debugging.md   # Finding and fixing bugs
     └── refactoring.md # Safe code refactoring
@@ -22,6 +23,7 @@ examples/
 
 | Task | Prompt |
 |------|--------|
+| Setup project | "Initialize this project for code search" |
 | Find code | "Search for code that handles user authentication" |
 | Understand function | "What does the `ProcessPayment` function do and who calls it?" |
 | Find callers | "Show me all places that call the `validateToken` function" |
@@ -56,7 +58,27 @@ The AI assistant then uses this information to answer your question.
 ## Getting Started
 
 1. Make sure mcp-codewizard is configured in your AI assistant
-2. Index your project: `mcp-codewizard index`
+2. Initialize your project: `mcp-codewizard init` (or ask your AI: "Initialize this project for code search")
 3. Start asking questions!
+
+### First Time Setup
+
+The easiest way to get started is to ask your AI assistant:
+
+> "Set up code search for this project"
+
+The AI will use the `init_project` tool to:
+- Detect your environment (Ollama, OpenAI, GPU, RAM)
+- Analyze your project (languages, file count, complexity)
+- Recommend optimal settings
+- Create configuration and start indexing
+
+### Presets
+
+| Preset | Description | Use Case |
+|--------|-------------|----------|
+| `recommended` | Best balance of quality and speed | Most projects |
+| `quality` | Maximum search accuracy | When precision matters |
+| `fast` | Minimal resources, quick indexing | Large codebases, limited RAM |
 
 See individual prompt files for detailed examples.

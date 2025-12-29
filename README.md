@@ -68,11 +68,16 @@ curl -fsSL https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.s
 # irm https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.ps1 | iex
 ```
 
-### 3. Index Your Project
+### 3. Initialize and Index Your Project
 
 ```bash
 cd /path/to/your/project
-mcp-codewizard index
+
+# Interactive setup wizard (recommended for first time)
+mcp-codewizard init
+
+# Or quick setup with recommended settings
+mcp-codewizard init --preset recommended
 ```
 
 ### 4. Configure Your AI Assistant
@@ -211,6 +216,30 @@ embedding:
 
 ## CLI Usage
 
+### Initialization (New Projects)
+
+```bash
+# Interactive setup wizard - detects environment, recommends settings
+mcp-codewizard init
+
+# Quick setup with preset (skips prompts)
+mcp-codewizard init --preset recommended   # Best balance
+mcp-codewizard init --preset quality       # Maximum accuracy
+mcp-codewizard init --preset fast          # Minimal resources
+
+# Initialize without starting indexing
+mcp-codewizard init --preset recommended --no-index
+
+# Output as JSON (for automation/MCP)
+mcp-codewizard init --json
+```
+
+The wizard will:
+1. Detect your environment (Ollama, OpenAI, GPU, RAM)
+2. Analyze your project (languages, size, complexity)
+3. Recommend optimal settings
+4. Create configuration and optionally start indexing
+
 ### Indexing
 
 ```bash
@@ -278,6 +307,7 @@ When used with an AI assistant, these tools are available:
 
 | Tool | Description |
 |------|-------------|
+| `init_project` | Interactive setup wizard - detect environment, configure, optionally index |
 | `detect_environment` | Detect available providers, project structure, get recommendations |
 | `get_config` | Get current configuration |
 | `validate_config` | Validate config and test provider connections |
