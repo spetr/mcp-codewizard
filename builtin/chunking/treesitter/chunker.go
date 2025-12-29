@@ -42,7 +42,10 @@ import (
 	tstype "github.com/smacker/go-tree-sitter/typescript/typescript"
 	"github.com/smacker/go-tree-sitter/yaml"
 
+	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/dart"
+	tsjson "github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/json"
 	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/pascal"
+	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/powershell"
 	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/vbnet"
 	"github.com/spetr/mcp-codewizard/pkg/provider"
 	"github.com/spetr/mcp-codewizard/pkg/types"
@@ -155,6 +158,12 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = pascal.GetLanguage()
 	case "vbnet", "vb", "visualbasic", "vb.net":
 		language = vbnet.GetLanguage()
+	case "dart":
+		language = dart.GetLanguage()
+	case "json":
+		language = tsjson.GetLanguage()
+	case "powershell", "ps1", "psm1", "psd1":
+		language = powershell.GetLanguage()
 	default:
 		return nil, nil, false
 	}
@@ -323,6 +332,12 @@ func (c *Chunker) classifyNode(nodeType string, node *sitter.Node, content strin
 		return c.classifyPascalNode(nodeType, node, content)
 	case "vbnet", "vb", "visualbasic", "vb.net":
 		return c.classifyVBNetNode(nodeType, node, content)
+	case "dart":
+		return c.classifyDartNode(nodeType, node, content)
+	case "json":
+		return c.classifyJSONNode(nodeType, node, content)
+	case "powershell", "ps1", "psm1", "psd1":
+		return c.classifyPowerShellNode(nodeType, node, content)
 	}
 	return "", ""
 }
@@ -1016,6 +1031,7 @@ func (c *Chunker) SupportedLanguages() []string {
 		"ocaml", "ml", "mli", "toml", "cue",
 		"pascal", "pas", "dpr", "pp", "delphi", "freepascal",
 		"vbnet", "vb", "visualbasic", "vb.net",
+		"dart", "json", "powershell", "ps1", "psm1", "psd1",
 	}
 }
 
@@ -1133,6 +1149,12 @@ func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.S
 		sym = c.pascalNodeToSymbol(nodeType, node, content)
 	case "vbnet", "vb", "visualbasic", "vb.net":
 		sym = c.vbnetNodeToSymbol(nodeType, node, content)
+	case "dart":
+		sym = c.dartNodeToSymbol(nodeType, node, content)
+	case "json":
+		sym = c.jsonNodeToSymbol(nodeType, node, content)
+	case "powershell", "ps1", "psm1", "psd1":
+		sym = c.powershellNodeToSymbol(nodeType, node, content)
 	}
 
 	if sym != nil {
@@ -2311,6 +2333,240 @@ func (c *Chunker) getVBNetVisibility(node *sitter.Node, content string) string {
 		return "internal"
 	}
 	return "public"
+}
+
+// Dart language support
+func (c *Chunker) classifyDartNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "class_definition":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeClass, name
+	case "mixin_declaration":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeClass, name
+	case "extension_declaration":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeClass, name
+	case "enum_declaration":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeBlock, name
+	case "function_signature", "method_signature":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeFunction, name
+	case "constructor_signature", "factory_constructor_signature":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeFunction, name
+	case "getter_signature":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeFunction, "get " + name
+	case "setter_signature":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeFunction, "set " + name
+	case "type_alias":
+		name := c.findDartIdentifier(node, content)
+		return types.ChunkTypeBlock, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) findDartIdentifier(node *sitter.Node, content string) string {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "identifier" {
+			return content[child.StartByte():child.EndByte()]
+		}
+	}
+	return ""
+}
+
+func (c *Chunker) dartNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "class_definition":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	case "mixin_declaration":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	case "extension_declaration":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	case "enum_declaration":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	case "function_signature", "method_signature":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindFunction,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	case "constructor_signature", "factory_constructor_signature":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindFunction,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	case "getter_signature":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       "get " + name,
+			Kind:       types.SymbolKindFunction,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	case "setter_signature":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       "set " + name,
+			Kind:       types.SymbolKindFunction,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	case "type_alias":
+		name := c.findDartIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getDartVisibility(node, content),
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) getDartVisibility(node *sitter.Node, content string) string {
+	name := c.findDartIdentifier(node, content)
+	if strings.HasPrefix(name, "_") {
+		return "private"
+	}
+	return "public"
+}
+
+// JSON language support
+func (c *Chunker) classifyJSONNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "object":
+		// Top-level object
+		if node.Parent() != nil && node.Parent().Type() == "document" {
+			return types.ChunkTypeBlock, "root"
+		}
+	case "pair":
+		// Key-value pair - extract key name
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() == "string" {
+				key := content[child.StartByte():child.EndByte()]
+				// Remove quotes
+				if len(key) >= 2 {
+					key = key[1 : len(key)-1]
+				}
+				return types.ChunkTypeBlock, key
+			}
+		}
+	}
+	return "", ""
+}
+
+func (c *Chunker) jsonNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "pair":
+		// Extract key name from pair
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() == "string" {
+				key := content[child.StartByte():child.EndByte()]
+				if len(key) >= 2 {
+					key = key[1 : len(key)-1]
+				}
+				return &types.Symbol{
+					Name:       key,
+					Kind:       types.SymbolKindVariable,
+					Visibility: "public",
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// PowerShell language support
+func (c *Chunker) classifyPowerShellNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_statement":
+		name := c.findPowerShellIdentifier(node, content)
+		return types.ChunkTypeFunction, name
+	case "filter_statement":
+		name := c.findPowerShellIdentifier(node, content)
+		return types.ChunkTypeFunction, name
+	case "class_statement":
+		name := c.findPowerShellIdentifier(node, content)
+		return types.ChunkTypeClass, name
+	case "enum_statement":
+		name := c.findPowerShellIdentifier(node, content)
+		return types.ChunkTypeBlock, name
+	case "param_block":
+		return types.ChunkTypeBlock, "param"
+	}
+	return "", ""
+}
+
+func (c *Chunker) findPowerShellIdentifier(node *sitter.Node, content string) string {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		childType := child.Type()
+		if childType == "bareword" || childType == "simple_name" || childType == "identifier" {
+			return content[child.StartByte():child.EndByte()]
+		}
+	}
+	return ""
+}
+
+func (c *Chunker) powershellNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_statement":
+		name := c.findPowerShellIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindFunction,
+			Visibility: "public",
+		}
+	case "filter_statement":
+		name := c.findPowerShellIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindFunction,
+			Visibility: "public",
+		}
+	case "class_statement":
+		name := c.findPowerShellIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: "public",
+		}
+	case "enum_statement":
+		name := c.findPowerShellIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: "public",
+		}
+	}
+	return nil
 }
 
 // extractDocComment extracts documentation comment preceding a node.
