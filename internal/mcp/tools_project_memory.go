@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/spetr/mcp-codewizard/internal/github"
 	"github.com/spetr/mcp-codewizard/internal/memory"
 )
 
@@ -138,6 +139,16 @@ func (s *Server) registerProjectMemoryTools(mcpServer *server.MCPServer) {
 		mcp.WithDescription("Reopen a resolved issue"),
 		mcp.WithString("id", mcp.Required(), mcp.Description("Issue ID")),
 	), s.handleIssueReopen)
+
+	// github_sync - Sync issues from GitHub
+	mcpServer.AddTool(mcp.NewTool("github_sync",
+		mcp.WithDescription("Sync issues and pull requests from GitHub using gh CLI. Requires gh to be installed and authenticated."),
+		mcp.WithBoolean("all", mcp.Description("Sync all issues (open + closed). Default: only open")),
+		mcp.WithBoolean("prs", mcp.Description("Include pull requests")),
+		mcp.WithNumber("limit", mcp.Description("Maximum items to sync (default: 100)")),
+		mcp.WithArray("labels", mcp.Description("Filter by labels")),
+		mcp.WithString("assignee", mcp.Description("Filter by assignee")),
+	), s.handleGitHubSync)
 
 	// === Session Management ===
 
@@ -650,6 +661,65 @@ func (s *Server) handleIssueReopen(ctx context.Context, req mcp.CallToolRequest)
 	}
 
 	jsonResult, _ := json.MarshalIndent(issue, "", "  ")
+	return mcp.NewToolResultText(string(jsonResult)), nil
+}
+
+func (s *Server) handleGitHubSync(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	store, err := s.getProjectMemoryStore()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get memory store: %v", err)), nil
+	}
+
+	// Initialize GitHub client
+	client := github.New()
+	if !client.IsAvailable(ctx) {
+		return mcp.NewToolResultError("gh CLI not available or not authenticated. Run 'gh auth login' first."), nil
+	}
+
+	// Build sync config
+	cfg := github.SyncConfig{
+		Limit: req.GetInt("limit", 100),
+	}
+
+	if req.GetBool("all", false) {
+		cfg.States = []string{"all"}
+	} else {
+		cfg.States = []string{"open"}
+	}
+
+	cfg.IncludePRs = req.GetBool("prs", false)
+	cfg.Assignee = req.GetString("assignee", "")
+	cfg.Labels = req.GetStringSlice("labels", nil)
+
+	// Sync
+	requests, result, err := client.Sync(ctx, cfg)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("sync failed: %v", err)), nil
+	}
+
+	// Store issues
+	stored := 0
+	for _, req := range requests {
+		if _, err := store.AddIssue(req); err == nil {
+			stored++
+		}
+	}
+
+	// Build response
+	response := map[string]interface{}{
+		"issues_synced": result.IssuesSynced,
+		"prs_synced":    result.PRsSynced,
+		"stored":        stored,
+	}
+	if len(result.Errors) > 0 {
+		errStrings := make([]string, len(result.Errors))
+		for i, e := range result.Errors {
+			errStrings[i] = e.Error()
+		}
+		response["errors"] = errStrings
+	}
+
+	jsonResult, _ := json.MarshalIndent(response, "", "  ")
 	return mcp.NewToolResultText(string(jsonResult)), nil
 }
 

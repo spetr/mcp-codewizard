@@ -22,7 +22,9 @@ import (
 	simpleChunker "github.com/spetr/mcp-codewizard/builtin/chunking/simple"
 	tsChunker "github.com/spetr/mcp-codewizard/builtin/chunking/treesitter"
 	"github.com/spetr/mcp-codewizard/builtin/vectorstore/sqlitevec"
+	"github.com/spetr/mcp-codewizard/internal/analysis"
 	"github.com/spetr/mcp-codewizard/internal/config"
+	"github.com/spetr/mcp-codewizard/internal/github"
 	"github.com/spetr/mcp-codewizard/internal/index"
 	"github.com/spetr/mcp-codewizard/internal/mcp"
 	"github.com/spetr/mcp-codewizard/internal/memory"
@@ -369,6 +371,354 @@ var registerAllCmd = &cobra.Command{
 	},
 }
 
+var syncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Synchronize external data sources",
+}
+
+var syncGithubCmd = &cobra.Command{
+	Use:   "github",
+	Short: "Sync GitHub issues and PRs to memory",
+	Long: `Fetch GitHub issues and pull requests using gh CLI and store them in memory.
+
+Requires: gh CLI installed and authenticated (gh auth login)
+
+Examples:
+  mcp-codewizard sync github              # Sync open issues
+  mcp-codewizard sync github --all        # Sync all issues (open + closed)
+  mcp-codewizard sync github --prs        # Include pull requests
+  mcp-codewizard sync github --limit 50   # Limit to 50 items`,
+	Run: func(cmd *cobra.Command, args []string) {
+		all, _ := cmd.Flags().GetBool("all")
+		prs, _ := cmd.Flags().GetBool("prs")
+		limit, _ := cmd.Flags().GetInt("limit")
+		labels, _ := cmd.Flags().GetStringSlice("labels")
+		assignee, _ := cmd.Flags().GetString("assignee")
+
+		runSyncGithub(all, prs, limit, labels, assignee)
+	},
+}
+
+// Call command - generic MCP tool invocation
+var callCmd = &cobra.Command{
+	Use:   "call <tool> [json-args]",
+	Short: "Call any MCP tool directly (for debugging)",
+	Long: `Call any MCP tool by name with JSON arguments.
+
+Examples:
+  mcp-codewizard call get_callers '{"symbol": "main"}'
+  mcp-codewizard call get_dead_code '{"type": "functions", "limit": 10}'
+  mcp-codewizard call get_symbols '{"kind": "function", "min_lines": 50}'
+  mcp-codewizard call search_history '{"query": "fix bug"}'`,
+	Args: cobra.RangeArgs(1, 2),
+	Run: func(cmd *cobra.Command, args []string) {
+		tool := args[0]
+		jsonArgs := "{}"
+		if len(args) > 1 {
+			jsonArgs = args[1]
+		}
+		runCall(tool, jsonArgs)
+	},
+}
+
+// Chunk command
+var chunkCmd = &cobra.Command{
+	Use:   "chunk <id>",
+	Short: "Get chunk content with context",
+	Long: `Get a specific chunk by ID with surrounding context lines.
+
+Examples:
+  mcp-codewizard chunk "main.go:10:abc123"
+  mcp-codewizard chunk "main.go:10:abc123" --context 10`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		contextLines, _ := cmd.Flags().GetInt("context")
+		runChunk(args[0], contextLines)
+	},
+}
+
+// Clear command
+var clearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Clear the index",
+	Long:  `Remove all indexed data. This will require re-indexing.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		force, _ := cmd.Flags().GetBool("force")
+		runClear(force)
+	},
+}
+
+// Analysis commands
+var analysisCmd = &cobra.Command{
+	Use:   "analysis",
+	Short: "Code analysis tools",
+	Long:  `Various code analysis tools: callers, callees, symbols, dead code, complexity, etc.`,
+}
+
+var analysisCallersCmd = &cobra.Command{
+	Use:   "callers <symbol>",
+	Short: "Find all callers of a symbol",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		runAnalysisCallers(args[0], limit)
+	},
+}
+
+var analysisCalleesCmd = &cobra.Command{
+	Use:   "callees <symbol>",
+	Short: "Find all functions called by a symbol",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		runAnalysisCallees(args[0], limit)
+	},
+}
+
+var analysisSymbolsCmd = &cobra.Command{
+	Use:   "symbols",
+	Short: "List symbols with filters",
+	Run: func(cmd *cobra.Command, args []string) {
+		kind, _ := cmd.Flags().GetString("kind")
+		minLines, _ := cmd.Flags().GetInt("min-lines")
+		sortBy, _ := cmd.Flags().GetString("sort")
+		limit, _ := cmd.Flags().GetInt("limit")
+		runAnalysisSymbols(kind, minLines, sortBy, limit)
+	},
+}
+
+var analysisDeadCodeCmd = &cobra.Command{
+	Use:   "dead-code",
+	Short: "Find potentially unused code",
+	Run: func(cmd *cobra.Command, args []string) {
+		codeType, _ := cmd.Flags().GetString("type")
+		limit, _ := cmd.Flags().GetInt("limit")
+		runAnalysisDeadCode(codeType, limit)
+	},
+}
+
+var analysisRefactoringCmd = &cobra.Command{
+	Use:   "refactoring",
+	Short: "Find refactoring candidates",
+	Run: func(cmd *cobra.Command, args []string) {
+		minLines, _ := cmd.Flags().GetInt("min-lines")
+		maxComplexity, _ := cmd.Flags().GetInt("max-complexity")
+		maxNesting, _ := cmd.Flags().GetInt("max-nesting")
+		limit, _ := cmd.Flags().GetInt("limit")
+		runAnalysisRefactoring(minLines, maxComplexity, maxNesting, limit)
+	},
+}
+
+var analysisComplexityCmd = &cobra.Command{
+	Use:   "complexity <file>",
+	Short: "Analyze code complexity",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		startLine, _ := cmd.Flags().GetInt("start-line")
+		endLine, _ := cmd.Flags().GetInt("end-line")
+		runAnalysisComplexity(args[0], startLine, endLine)
+	},
+}
+
+var analysisEntryPointsCmd = &cobra.Command{
+	Use:   "entry-points",
+	Short: "Find entry points (main, handlers, etc.)",
+	Run: func(cmd *cobra.Command, args []string) {
+		entryType, _ := cmd.Flags().GetString("type")
+		limit, _ := cmd.Flags().GetInt("limit")
+		runAnalysisEntryPoints(entryType, limit)
+	},
+}
+
+var analysisImportsCmd = &cobra.Command{
+	Use:   "imports",
+	Short: "Show import/dependency graph",
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		runAnalysisImports(limit)
+	},
+}
+
+// Git commands
+var gitCmd = &cobra.Command{
+	Use:   "git",
+	Short: "Git history analysis tools",
+	Long:  `Tools for analyzing git history: search commits, blame, evolution, regression finding.`,
+}
+
+var gitIndexCmd = &cobra.Command{
+	Use:   "index",
+	Short: "Index git history for semantic search",
+	Run: func(cmd *cobra.Command, args []string) {
+		since, _ := cmd.Flags().GetString("since")
+		force, _ := cmd.Flags().GetBool("force")
+		runGitIndex(since, force)
+	},
+}
+
+var gitStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show git history index status",
+	Run: func(cmd *cobra.Command, args []string) {
+		runGitStatus()
+	},
+}
+
+var gitSearchCmd = &cobra.Command{
+	Use:   "search <query>",
+	Short: "Semantic search in git history",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		includeDiff, _ := cmd.Flags().GetBool("diff")
+		runGitSearch(args[0], limit, includeDiff)
+	},
+}
+
+var gitBlameCmd = &cobra.Command{
+	Use:   "blame <file>",
+	Short: "Show blame information for a file",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		startLine, _ := cmd.Flags().GetInt("start-line")
+		endLine, _ := cmd.Flags().GetInt("end-line")
+		runGitBlame(args[0], startLine, endLine)
+	},
+}
+
+var gitEvolutionCmd = &cobra.Command{
+	Use:   "evolution <symbol>",
+	Short: "Show how a symbol evolved over time",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		runGitEvolution(args[0], limit)
+	},
+}
+
+var gitRegressionCmd = &cobra.Command{
+	Use:   "regression <pattern>",
+	Short: "Find commits that may have introduced a bug",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		knownGood, _ := cmd.Flags().GetString("good")
+		knownBad, _ := cmd.Flags().GetString("bad")
+		limit, _ := cmd.Flags().GetInt("limit")
+		runGitRegression(args[0], knownGood, knownBad, limit)
+	},
+}
+
+var gitCommitCmd = &cobra.Command{
+	Use:   "commit <hash>",
+	Short: "Show commit details and context",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		includeDiff, _ := cmd.Flags().GetBool("diff")
+		runGitCommit(args[0], includeDiff)
+	},
+}
+
+var gitContributorsCmd = &cobra.Command{
+	Use:   "contributors",
+	Short: "Show contributor insights",
+	Run: func(cmd *cobra.Command, args []string) {
+		file, _ := cmd.Flags().GetString("file")
+		runGitContributors(file)
+	},
+}
+
+var gitHistoryCmd = &cobra.Command{
+	Use:   "history <chunk-or-symbol>",
+	Short: "Show change history for a chunk or symbol",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		runGitHistory(args[0], limit)
+	},
+}
+
+// Todo commands
+var todoCmd = &cobra.Command{
+	Use:   "todo",
+	Short: "Task management",
+	Long:  `Manage tasks and todos with priorities and statuses.`,
+}
+
+var todoListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List todos",
+	Run: func(cmd *cobra.Command, args []string) {
+		status, _ := cmd.Flags().GetStringSlice("status")
+		priority, _ := cmd.Flags().GetString("priority")
+		limit, _ := cmd.Flags().GetInt("limit")
+		includeCompleted, _ := cmd.Flags().GetBool("completed")
+		runTodoList(status, priority, limit, includeCompleted)
+	},
+}
+
+var todoAddCmd = &cobra.Command{
+	Use:   "add <title>",
+	Short: "Add a new todo",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		description, _ := cmd.Flags().GetString("description")
+		priority, _ := cmd.Flags().GetString("priority")
+		parent, _ := cmd.Flags().GetString("parent")
+		file, _ := cmd.Flags().GetString("file")
+		line, _ := cmd.Flags().GetInt("line")
+		runTodoAdd(args[0], description, priority, parent, file, line)
+	},
+}
+
+var todoSearchCmd = &cobra.Command{
+	Use:   "search <query>",
+	Short: "Search todos semantically",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		runTodoSearch(args[0], limit)
+	},
+}
+
+var todoUpdateCmd = &cobra.Command{
+	Use:   "update <id>",
+	Short: "Update a todo",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		status, _ := cmd.Flags().GetString("status")
+		priority, _ := cmd.Flags().GetString("priority")
+		progress, _ := cmd.Flags().GetInt("progress")
+		title, _ := cmd.Flags().GetString("title")
+		runTodoUpdate(args[0], status, priority, progress, title)
+	},
+}
+
+var todoCompleteCmd = &cobra.Command{
+	Use:   "complete <id>",
+	Short: "Mark a todo as completed",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		runTodoComplete(args[0])
+	},
+}
+
+var todoDeleteCmd = &cobra.Command{
+	Use:   "delete <id>",
+	Short: "Delete a todo",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		runTodoDelete(args[0])
+	},
+}
+
+var todoStatsCmd = &cobra.Command{
+	Use:   "stats",
+	Short: "Show todo statistics",
+	Run: func(cmd *cobra.Command, args []string) {
+		runTodoStats()
+	},
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default: .mcp-codewizard/config.yaml)")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
@@ -432,6 +782,98 @@ func init() {
 	registerCmd.AddCommand(registerCodexCmd)
 	registerCmd.AddCommand(registerAllCmd)
 
+	// Sync command flags
+	syncGithubCmd.Flags().Bool("all", false, "sync all issues (open + closed)")
+	syncGithubCmd.Flags().Bool("prs", false, "include pull requests")
+	syncGithubCmd.Flags().IntP("limit", "l", 100, "maximum items to sync")
+	syncGithubCmd.Flags().StringSlice("labels", nil, "filter by labels")
+	syncGithubCmd.Flags().StringP("assignee", "a", "", "filter by assignee")
+
+	syncCmd.AddCommand(syncGithubCmd)
+
+	// Chunk command flags
+	chunkCmd.Flags().IntP("context", "c", 5, "number of context lines")
+
+	// Clear command flags
+	clearCmd.Flags().BoolP("force", "f", false, "force clear without confirmation")
+
+	// Analysis command flags
+	analysisCallersCmd.Flags().IntP("limit", "l", 50, "maximum results")
+	analysisCalleesCmd.Flags().IntP("limit", "l", 50, "maximum results")
+	analysisSymbolsCmd.Flags().StringP("kind", "k", "", "filter by kind (function, type, method, variable)")
+	analysisSymbolsCmd.Flags().Int("min-lines", 0, "minimum line count")
+	analysisSymbolsCmd.Flags().StringP("sort", "s", "", "sort by (lines, name)")
+	analysisSymbolsCmd.Flags().IntP("limit", "l", 50, "maximum results")
+	analysisDeadCodeCmd.Flags().StringP("type", "t", "functions", "type of dead code (functions, types)")
+	analysisDeadCodeCmd.Flags().IntP("limit", "l", 20, "maximum results")
+	analysisRefactoringCmd.Flags().Int("min-lines", 50, "minimum line count")
+	analysisRefactoringCmd.Flags().Int("max-complexity", 10, "maximum acceptable complexity")
+	analysisRefactoringCmd.Flags().Int("max-nesting", 4, "maximum acceptable nesting")
+	analysisRefactoringCmd.Flags().IntP("limit", "l", 20, "maximum results")
+	analysisComplexityCmd.Flags().Int("start-line", 0, "start line")
+	analysisComplexityCmd.Flags().Int("end-line", 0, "end line")
+	analysisEntryPointsCmd.Flags().StringP("type", "t", "", "filter by type (main, handler, init)")
+	analysisEntryPointsCmd.Flags().IntP("limit", "l", 100, "maximum results")
+	analysisImportsCmd.Flags().IntP("limit", "l", 1000, "maximum edges")
+
+	analysisCmd.AddCommand(analysisCallersCmd)
+	analysisCmd.AddCommand(analysisCalleesCmd)
+	analysisCmd.AddCommand(analysisSymbolsCmd)
+	analysisCmd.AddCommand(analysisDeadCodeCmd)
+	analysisCmd.AddCommand(analysisRefactoringCmd)
+	analysisCmd.AddCommand(analysisComplexityCmd)
+	analysisCmd.AddCommand(analysisEntryPointsCmd)
+	analysisCmd.AddCommand(analysisImportsCmd)
+
+	// Git command flags
+	gitIndexCmd.Flags().String("since", "30 days ago", "index commits since this date")
+	gitIndexCmd.Flags().Bool("force", false, "force reindex")
+	gitSearchCmd.Flags().IntP("limit", "l", 10, "maximum results")
+	gitSearchCmd.Flags().Bool("diff", false, "include diff in results")
+	gitBlameCmd.Flags().Int("start-line", 0, "start line")
+	gitBlameCmd.Flags().Int("end-line", 0, "end line")
+	gitEvolutionCmd.Flags().IntP("limit", "l", 20, "maximum commits")
+	gitRegressionCmd.Flags().String("good", "", "known good commit")
+	gitRegressionCmd.Flags().String("bad", "HEAD", "known bad commit")
+	gitRegressionCmd.Flags().IntP("limit", "l", 10, "maximum results")
+	gitCommitCmd.Flags().Bool("diff", false, "include diff")
+	gitContributorsCmd.Flags().StringP("file", "f", "", "filter by file path")
+	gitHistoryCmd.Flags().IntP("limit", "l", 20, "maximum commits")
+
+	gitCmd.AddCommand(gitIndexCmd)
+	gitCmd.AddCommand(gitStatusCmd)
+	gitCmd.AddCommand(gitSearchCmd)
+	gitCmd.AddCommand(gitBlameCmd)
+	gitCmd.AddCommand(gitEvolutionCmd)
+	gitCmd.AddCommand(gitRegressionCmd)
+	gitCmd.AddCommand(gitCommitCmd)
+	gitCmd.AddCommand(gitContributorsCmd)
+	gitCmd.AddCommand(gitHistoryCmd)
+
+	// Todo command flags
+	todoListCmd.Flags().StringSliceP("status", "s", nil, "filter by status (pending, in_progress, done, cancelled)")
+	todoListCmd.Flags().StringP("priority", "p", "", "filter by priority (urgent, high, medium, low)")
+	todoListCmd.Flags().IntP("limit", "l", 20, "maximum results")
+	todoListCmd.Flags().Bool("completed", false, "include completed todos")
+	todoAddCmd.Flags().StringP("description", "d", "", "task description")
+	todoAddCmd.Flags().StringP("priority", "p", "medium", "priority (urgent, high, medium, low)")
+	todoAddCmd.Flags().String("parent", "", "parent todo ID")
+	todoAddCmd.Flags().StringP("file", "f", "", "related file path")
+	todoAddCmd.Flags().Int("line", 0, "line number in file")
+	todoSearchCmd.Flags().IntP("limit", "l", 10, "maximum results")
+	todoUpdateCmd.Flags().StringP("status", "s", "", "new status")
+	todoUpdateCmd.Flags().StringP("priority", "p", "", "new priority")
+	todoUpdateCmd.Flags().Int("progress", -1, "progress percentage (0-100)")
+	todoUpdateCmd.Flags().StringP("title", "t", "", "new title")
+
+	todoCmd.AddCommand(todoListCmd)
+	todoCmd.AddCommand(todoAddCmd)
+	todoCmd.AddCommand(todoSearchCmd)
+	todoCmd.AddCommand(todoUpdateCmd)
+	todoCmd.AddCommand(todoCompleteCmd)
+	todoCmd.AddCommand(todoDeleteCmd)
+	todoCmd.AddCommand(todoStatsCmd)
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(indexCmd)
@@ -444,6 +886,13 @@ func init() {
 	rootCmd.AddCommand(pluginCmd)
 	rootCmd.AddCommand(memoryCmd)
 	rootCmd.AddCommand(registerCmd)
+	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(callCmd)
+	rootCmd.AddCommand(chunkCmd)
+	rootCmd.AddCommand(clearCmd)
+	rootCmd.AddCommand(analysisCmd)
+	rootCmd.AddCommand(gitCmd)
+	rootCmd.AddCommand(todoCmd)
 }
 
 func setupLogging() {
@@ -1931,4 +2380,839 @@ func runRegisterAll(global bool) {
 
 	fmt.Println()
 	fmt.Println("Restart the CLI tools to apply changes.")
+}
+
+// runSyncGithub syncs GitHub issues and PRs to memory.
+func runSyncGithub(all, prs bool, limit int, labels []string, assignee string) {
+	setupLogging()
+	cwd, _ := os.Getwd()
+
+	// Check if gh is available
+	client := github.New()
+	ctx := context.Background()
+
+	if !client.IsAvailable(ctx) {
+		slog.Error("gh CLI not available or not authenticated")
+		fmt.Println("Error: gh CLI is not installed or not authenticated.")
+		fmt.Println("Install: https://cli.github.com/")
+		fmt.Println("Authenticate: gh auth login")
+		os.Exit(1)
+	}
+
+	// Get repo info
+	repo, err := client.GetRepoInfo(ctx)
+	if err != nil {
+		slog.Error("failed to get repo info", "error", err)
+		fmt.Println("Error: Not in a GitHub repository or failed to get repo info.")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Syncing GitHub issues from %s...\n", repo)
+
+	// Build sync config
+	cfg := github.SyncConfig{
+		Limit:      limit,
+		Labels:     labels,
+		Assignee:   assignee,
+		IncludePRs: prs,
+	}
+
+	if all {
+		cfg.States = []string{"all"}
+	} else {
+		cfg.States = []string{"open"}
+	}
+
+	// Sync
+	requests, result, err := client.Sync(ctx, cfg)
+	if err != nil {
+		slog.Error("sync failed", "error", err)
+		os.Exit(1)
+	}
+
+	if len(requests) == 0 {
+		fmt.Println("No issues or PRs found.")
+		return
+	}
+
+	// Open memory store
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	// Store issues
+	for _, req := range requests {
+		if _, err := store.AddIssue(req); err != nil {
+			slog.Warn("failed to store issue", "title", req.Title, "error", err)
+		}
+	}
+
+	fmt.Printf("\nSynced %d issues", result.IssuesSynced)
+	if prs {
+		fmt.Printf(" and %d PRs", result.PRsSynced)
+	}
+	fmt.Println(" to memory.")
+
+	if len(result.Errors) > 0 {
+		fmt.Println("\nWarnings:")
+		for _, e := range result.Errors {
+			fmt.Printf("  - %v\n", e)
+		}
+	}
+
+	fmt.Println("\nUse 'mcp-codewizard memory issues' to view synced issues.")
+}
+
+// runCall invokes an MCP tool directly (for debugging)
+// Note: This is a simplified implementation that maps tool names to direct function calls
+func runCall(tool string, jsonArgs string) {
+	cwd, _ := os.Getwd()
+
+	// Parse JSON args
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		slog.Error("invalid JSON arguments", "error", err)
+		os.Exit(1)
+	}
+
+	// Load config
+	cfg, _, err := config.Load(cwd)
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Create providers
+	store, embedding, _, reranker, err := createProviders(cfg)
+	if err != nil {
+		slog.Error("failed to create providers", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	// Initialize store
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+
+	// Create search engine
+	searchEngine := search.New(search.Config{
+		Store:     store,
+		Embedding: embedding,
+		Reranker:  reranker,
+	})
+
+	// Create MCP server for tool handling
+	mcpServer, err := mcp.New(mcp.Config{
+		ProjectDir: cwd,
+		Config:     cfg,
+		Store:      store,
+		Embedding:  embedding,
+		Reranker:   reranker,
+	})
+	if err != nil {
+		slog.Error("failed to create MCP server", "error", err)
+		os.Exit(1)
+	}
+
+	// Map tool name to simplified command output
+	// Since MCP doesn't expose CallTool directly, we handle common cases here
+	fmt.Printf("Tool: %s\nArgs: %s\n\n", tool, jsonArgs)
+	fmt.Println("Note: Direct tool invocation is limited. Use the specific subcommands instead:")
+	fmt.Println("  analysis callers/callees/symbols/dead-code/complexity/entry-points/imports")
+	fmt.Println("  git index/search/blame/evolution/regression/commit/contributors/history")
+	fmt.Println("  todo list/add/search/update/complete/delete/stats")
+	fmt.Println("  chunk <id>")
+	fmt.Println()
+
+	// Show search engine and MCP server are available
+	_ = searchEngine
+	_ = mcpServer
+}
+
+// runChunk gets a chunk with context
+func runChunk(chunkID string, contextLines int) {
+	cwd, _ := os.Getwd()
+
+	// Create store
+	store := sqlitevec.New()
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	// Get chunk
+	chunk, err := store.GetChunk(chunkID)
+	if err != nil {
+		slog.Error("failed to get chunk", "id", chunkID, "error", err)
+		os.Exit(1)
+	}
+
+	if chunk == nil {
+		fmt.Println("Chunk not found:", chunkID)
+		os.Exit(1)
+	}
+
+	// Print chunk info
+	fmt.Printf("File: %s\n", chunk.FilePath)
+	fmt.Printf("Lines: %d-%d\n", chunk.StartLine, chunk.EndLine)
+	fmt.Printf("Type: %s\n", chunk.ChunkType)
+	if chunk.Name != "" {
+		fmt.Printf("Name: %s\n", chunk.Name)
+	}
+	fmt.Println()
+
+	// Read file for context
+	content, err := os.ReadFile(chunk.FilePath)
+	if err != nil {
+		// Just print chunk content without context
+		fmt.Println(chunk.Content)
+		return
+	}
+
+	lines := splitLines(string(content))
+	startCtx := chunk.StartLine - contextLines - 1
+	if startCtx < 0 {
+		startCtx = 0
+	}
+	endCtx := chunk.EndLine + contextLines
+	if endCtx > len(lines) {
+		endCtx = len(lines)
+	}
+
+	for i := startCtx; i < endCtx; i++ {
+		lineNum := i + 1
+		prefix := "  "
+		if lineNum >= chunk.StartLine && lineNum <= chunk.EndLine {
+			prefix = "> "
+		}
+		fmt.Printf("%s%4d: %s\n", prefix, lineNum, lines[i])
+	}
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}
+
+// runClear clears the index
+func runClear(force bool) {
+	cwd, _ := os.Getwd()
+
+	if !force {
+		fmt.Print("This will delete all indexed data. Continue? [y/N] ")
+		var response string
+		fmt.Scanln(&response)
+		if response != "y" && response != "Y" {
+			fmt.Println("Aborted.")
+			return
+		}
+	}
+
+	store := sqlitevec.New()
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+
+	// Get all files and delete their chunks
+	hashes, err := store.GetAllFileHashes()
+	if err != nil {
+		slog.Error("failed to get files", "error", err)
+		store.Close()
+		os.Exit(1)
+	}
+
+	for filePath := range hashes {
+		if err := store.DeleteChunksByFile(filePath); err != nil {
+			slog.Warn("failed to delete chunks", "file", filePath, "error", err)
+		}
+		if err := store.DeleteFileCache(filePath); err != nil {
+			slog.Warn("failed to delete cache", "file", filePath, "error", err)
+		}
+	}
+
+	store.Close()
+	fmt.Println("Index cleared.")
+}
+
+// Analysis functions
+
+func runAnalysisCallers(symbol string, limit int) {
+	searchEngine := createSearchEngine()
+	if searchEngine == nil {
+		return
+	}
+
+	refs, err := searchEngine.GetCallers(symbol, limit)
+	if err != nil {
+		slog.Error("failed to get callers", "error", err)
+		os.Exit(1)
+	}
+
+	if len(refs) == 0 {
+		fmt.Printf("No callers found for '%s'\n", symbol)
+		return
+	}
+
+	fmt.Printf("Callers of '%s' (%d found):\n\n", symbol, len(refs))
+	for _, ref := range refs {
+		fmt.Printf("  %s:%d - %s\n", ref.FilePath, ref.Line, ref.FromSymbol)
+	}
+}
+
+func runAnalysisCallees(symbol string, limit int) {
+	searchEngine := createSearchEngine()
+	if searchEngine == nil {
+		return
+	}
+
+	refs, err := searchEngine.GetCallees(symbol, limit)
+	if err != nil {
+		slog.Error("failed to get callees", "error", err)
+		os.Exit(1)
+	}
+
+	if len(refs) == 0 {
+		fmt.Printf("No callees found for '%s'\n", symbol)
+		return
+	}
+
+	fmt.Printf("Functions called by '%s' (%d found):\n\n", symbol, len(refs))
+	for _, ref := range refs {
+		fmt.Printf("  %s:%d - %s\n", ref.FilePath, ref.Line, ref.ToSymbol)
+	}
+}
+
+func runAnalysisSymbols(kind string, minLines int, sortBy string, limit int) {
+	searchEngine := createSearchEngine()
+	if searchEngine == nil {
+		return
+	}
+
+	symbols, err := searchEngine.SearchSymbolsAdvanced("", types.SymbolKind(kind), minLines, sortBy, limit)
+	if err != nil {
+		slog.Error("failed to get symbols", "error", err)
+		os.Exit(1)
+	}
+
+	if len(symbols) == 0 {
+		fmt.Println("No symbols found")
+		return
+	}
+
+	fmt.Printf("Symbols (%d found):\n\n", len(symbols))
+	for _, sym := range symbols {
+		fmt.Printf("  %-12s %-40s %s:%d (%d lines)\n",
+			sym.Kind, sym.Name, sym.FilePath, sym.StartLine, sym.LineCount)
+	}
+}
+
+func runAnalysisDeadCode(codeType string, limit int) {
+	cwd, _ := os.Getwd()
+
+	// Create store for dead code analysis
+	store := sqlitevec.New()
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	// Use analysis package for dead code detection
+	deadCodeAnalyzer := analysis.NewDeadCodeAnalyzer(store)
+
+	var results []*analysis.DeadCodeResult
+	var err error
+
+	switch codeType {
+	case "functions":
+		results, err = deadCodeAnalyzer.FindDeadFunctions(limit)
+	case "types":
+		results, err = deadCodeAnalyzer.FindUnusedTypes(limit)
+	case "all":
+		results, err = deadCodeAnalyzer.FindDeadCode(limit)
+	default:
+		results, err = deadCodeAnalyzer.FindDeadFunctions(limit)
+	}
+
+	if err != nil {
+		slog.Error("failed to get dead code", "error", err)
+		os.Exit(1)
+	}
+
+	if len(results) == 0 {
+		fmt.Println("No dead code candidates found")
+		return
+	}
+
+	fmt.Printf("Potentially unused %s (%d found):\n\n", codeType, len(results))
+	for _, dc := range results {
+		fmt.Printf("  %-40s %s:%d (%s)\n", dc.Symbol.Name, dc.Symbol.FilePath, dc.Symbol.StartLine, dc.Reason)
+	}
+}
+
+func runAnalysisRefactoring(minLines, maxComplexity, maxNesting, limit int) {
+	searchEngine := createSearchEngine()
+	if searchEngine == nil {
+		return
+	}
+
+	result := map[string]interface{}{
+		"thresholds": map[string]int{
+			"min_lines":      minLines,
+			"max_complexity": maxComplexity,
+			"max_nesting":    maxNesting,
+		},
+	}
+
+	// Get long functions
+	longFunctions, err := searchEngine.FindLongFunctions(minLines, limit)
+	if err != nil {
+		slog.Warn("failed to find long functions", "error", err)
+	} else {
+		var longFormatted []map[string]interface{}
+		for _, sym := range longFunctions {
+			longFormatted = append(longFormatted, map[string]interface{}{
+				"name":       sym.Name,
+				"file":       sym.FilePath,
+				"start_line": sym.StartLine,
+				"end_line":   sym.EndLine,
+				"line_count": sym.LineCount,
+			})
+		}
+		result["long_functions"] = longFormatted
+	}
+
+	// Get high complexity functions
+	highComplexity, err := searchEngine.FindHighComplexityFunctions(maxComplexity, maxNesting, limit)
+	if err == nil && len(highComplexity) > 0 {
+		var complexFormatted []map[string]interface{}
+		for _, item := range highComplexity {
+			complexFormatted = append(complexFormatted, map[string]interface{}{
+				"name":                  item.Name,
+				"file":                  item.FilePath,
+				"start_line":            item.StartLine,
+				"end_line":              item.EndLine,
+				"line_count":            item.LineCount,
+				"cyclomatic_complexity": item.CyclomaticComplexity,
+				"cognitive_complexity":  item.CognitiveComplexity,
+				"max_nesting":           item.MaxNesting,
+			})
+		}
+		result["high_complexity"] = complexFormatted
+	}
+
+	jsonResult, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Println(string(jsonResult))
+}
+
+func runAnalysisComplexity(file string, startLine, endLine int) {
+	cwd, _ := os.Getwd()
+	absPath := file
+	if !filepath.IsAbs(file) {
+		absPath = filepath.Join(cwd, file)
+	}
+
+	// Use analysis package for complexity
+	complexityAnalyzer := analysis.NewComplexityAnalyzer()
+
+	var result interface{}
+	var err error
+
+	if startLine > 0 && endLine > 0 {
+		result, err = complexityAnalyzer.AnalyzeRange(absPath, startLine, endLine)
+	} else {
+		result, err = complexityAnalyzer.AnalyzeFile(absPath)
+	}
+
+	if err != nil {
+		slog.Error("failed to get complexity", "error", err)
+		os.Exit(1)
+	}
+
+	jsonResult, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Println(string(jsonResult))
+}
+
+func runAnalysisEntryPoints(entryType string, limit int) {
+	searchEngine := createSearchEngine()
+	if searchEngine == nil {
+		return
+	}
+
+	entryPoints, err := searchEngine.GetEntryPoints(limit)
+	if err != nil {
+		slog.Error("failed to get entry points", "error", err)
+		os.Exit(1)
+	}
+
+	// Filter by type if specified
+	if entryType != "" {
+		var filtered []*search.EntryPoint
+		for _, ep := range entryPoints {
+			if ep.Type == entryType {
+				filtered = append(filtered, ep)
+			}
+		}
+		entryPoints = filtered
+	}
+
+	if len(entryPoints) == 0 {
+		fmt.Println("No entry points found")
+		return
+	}
+
+	fmt.Printf("Entry points (%d found):\n\n", len(entryPoints))
+	for _, ep := range entryPoints {
+		fmt.Printf("  %-12s %-40s %s:%d\n", ep.Type, ep.Symbol.Name, ep.Symbol.FilePath, ep.Symbol.StartLine)
+	}
+}
+
+func runAnalysisImports(limit int) {
+	searchEngine := createSearchEngine()
+	if searchEngine == nil {
+		return
+	}
+
+	graph, err := searchEngine.GetImportGraph(limit)
+	if err != nil {
+		slog.Error("failed to get import graph", "error", err)
+		os.Exit(1)
+	}
+
+	result, _ := json.MarshalIndent(graph, "", "  ")
+	fmt.Println(string(result))
+}
+
+// Helper to create search engine
+func createSearchEngine() *search.Engine {
+	cwd, _ := os.Getwd()
+
+	cfg, _, err := config.Load(cwd)
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+		return nil
+	}
+
+	store, embedding, _, reranker, err := createProviders(cfg)
+	if err != nil {
+		slog.Error("failed to create providers", "error", err)
+		os.Exit(1)
+		return nil
+	}
+
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+		return nil
+	}
+
+	searchEngine := search.New(search.Config{
+		Store:     store,
+		Embedding: embedding,
+		Reranker:  reranker,
+	})
+
+	return searchEngine
+}
+
+// Git functions
+
+func runGitIndex(since string, force bool) {
+	runCall("index_git_history", fmt.Sprintf(`{"since": "%s", "force": %t}`, since, force))
+}
+
+func runGitStatus() {
+	runCall("get_git_history_status", "{}")
+}
+
+func runGitSearch(query string, limit int, includeDiff bool) {
+	args := fmt.Sprintf(`{"query": "%s", "limit": %d, "include_diff": %t}`, query, limit, includeDiff)
+	runCall("search_history", args)
+}
+
+func runGitBlame(file string, startLine, endLine int) {
+	cwd, _ := os.Getwd()
+	absPath := file
+	if !filepath.IsAbs(file) {
+		absPath = filepath.Join(cwd, file)
+	}
+	args := fmt.Sprintf(`{"file": "%s", "start_line": %d, "end_line": %d}`, absPath, startLine, endLine)
+	runCall("get_blame", args)
+}
+
+func runGitEvolution(symbol string, limit int) {
+	args := fmt.Sprintf(`{"symbol": "%s", "limit": %d}`, symbol, limit)
+	runCall("get_code_evolution", args)
+}
+
+func runGitRegression(pattern, knownGood, knownBad string, limit int) {
+	args := fmt.Sprintf(`{"pattern": "%s", "known_good": "%s", "known_bad": "%s", "limit": %d}`,
+		pattern, knownGood, knownBad, limit)
+	runCall("find_regression", args)
+}
+
+func runGitCommit(hash string, includeDiff bool) {
+	args := fmt.Sprintf(`{"commit": "%s", "include_diff": %t}`, hash, includeDiff)
+	runCall("get_commit_context", args)
+}
+
+func runGitContributors(file string) {
+	args := "{}"
+	if file != "" {
+		cwd, _ := os.Getwd()
+		absPath := file
+		if !filepath.IsAbs(file) {
+			absPath = filepath.Join(cwd, file)
+		}
+		args = fmt.Sprintf(`{"file": "%s"}`, absPath)
+	}
+	runCall("get_contributor_insights", args)
+}
+
+func runGitHistory(target string, limit int) {
+	// Try as chunk ID first, then as symbol
+	args := fmt.Sprintf(`{"chunk_id": "%s", "limit": %d}`, target, limit)
+	runCall("get_chunk_history", args)
+}
+
+// Todo functions
+
+func runTodoList(statuses []string, priority string, limit int, includeCompleted bool) {
+	cwd, _ := os.Getwd()
+
+	store := sqlitevec.New()
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	// Convert statuses
+	var todoStatuses []types.TodoStatus
+	for _, s := range statuses {
+		todoStatuses = append(todoStatuses, types.TodoStatus(s))
+	}
+
+	// Include completed if flag is set
+	if includeCompleted && len(todoStatuses) == 0 {
+		todoStatuses = []types.TodoStatus{
+			types.TodoStatusPending,
+			types.TodoStatusInProgress,
+			types.TodoStatusCompleted,
+		}
+	}
+
+	// List todos
+	ctx := context.Background()
+	todos, err := store.ListTodos(ctx, "", todoStatuses, limit)
+	if err != nil {
+		slog.Error("failed to list todos", "error", err)
+		os.Exit(1)
+	}
+
+	// Filter by priority if specified
+	if priority != "" {
+		var filtered []*types.TodoItem
+		for _, todo := range todos {
+			if todo.Priority == types.TodoPriority(priority) {
+				filtered = append(filtered, todo)
+			}
+		}
+		todos = filtered
+	}
+
+	if len(todos) == 0 {
+		fmt.Println("No todos found")
+		return
+	}
+
+	fmt.Printf("Todos (%d found):\n\n", len(todos))
+	for _, todo := range todos {
+		statusIcon := "○"
+		switch todo.Status {
+		case types.TodoStatusInProgress:
+			statusIcon = "◐"
+		case types.TodoStatusCompleted:
+			statusIcon = "●"
+		case types.TodoStatusCancelled:
+			statusIcon = "✗"
+		case types.TodoStatusBlocked:
+			statusIcon = "⊘"
+		}
+		prioIcon := ""
+		switch todo.Priority {
+		case types.TodoPriorityUrgent:
+			prioIcon = "!!!"
+		case types.TodoPriorityHigh:
+			prioIcon = "!!"
+		case types.TodoPriorityMedium:
+			prioIcon = "!"
+		}
+		fmt.Printf("  %s %-3s [%s] %s\n", statusIcon, prioIcon, todo.ID, todo.Title)
+		if todo.Progress > 0 {
+			fmt.Printf("      Progress: %d%%\n", todo.Progress)
+		}
+	}
+}
+
+func runTodoAdd(title, description, priority, parent, file string, line int) {
+	cwd, _ := os.Getwd()
+
+	store := sqlitevec.New()
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	// Generate a unique ID
+	todoID := fmt.Sprintf("todo_%d", time.Now().UnixNano())
+
+	todo := &types.TodoItem{
+		ID:          todoID,
+		Title:       title,
+		Description: description,
+		Priority:    types.TodoPriority(priority),
+		Status:      types.TodoStatusPending,
+		ParentID:    parent,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	// Add file reference as related chunk if provided
+	if file != "" {
+		absFile := file
+		if !filepath.IsAbs(file) {
+			absFile = filepath.Join(cwd, file)
+		}
+		chunkRef := absFile
+		if line > 0 {
+			chunkRef = fmt.Sprintf("%s:%d", absFile, line)
+		}
+		todo.RelatedChunks = []string{chunkRef}
+	}
+
+	if err := store.StoreTodo(todo); err != nil {
+		slog.Error("failed to create todo", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Created todo: %s\n", todo.ID)
+}
+
+func runTodoSearch(query string, limit int) {
+	args := fmt.Sprintf(`{"query": "%s", "limit": %d}`, query, limit)
+	runCall("todo_search", args)
+}
+
+func runTodoUpdate(id, status, priority string, progress int, title string) {
+	cwd, _ := os.Getwd()
+
+	store := sqlitevec.New()
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	todo, err := store.GetTodo(id)
+	if err != nil {
+		slog.Error("failed to get todo", "error", err)
+		os.Exit(1)
+	}
+
+	if todo == nil {
+		fmt.Printf("Todo not found: %s\n", id)
+		os.Exit(1)
+	}
+
+	if status != "" {
+		todo.Status = types.TodoStatus(status)
+	}
+	if priority != "" {
+		todo.Priority = types.TodoPriority(priority)
+	}
+	if progress >= 0 {
+		todo.Progress = progress
+	}
+	if title != "" {
+		todo.Title = title
+	}
+	todo.UpdatedAt = time.Now()
+
+	if err := store.UpdateTodo(todo); err != nil {
+		slog.Error("failed to update todo", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Updated todo: %s\n", id)
+}
+
+func runTodoComplete(id string) {
+	runTodoUpdate(id, string(types.TodoStatusCompleted), "", -1, "")
+}
+
+func runTodoDelete(id string) {
+	cwd, _ := os.Getwd()
+
+	store := sqlitevec.New()
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	if err := store.DeleteTodo(id); err != nil {
+		slog.Error("failed to delete todo", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Deleted todo: %s\n", id)
+}
+
+func runTodoStats() {
+	cwd, _ := os.Getwd()
+
+	store := sqlitevec.New()
+	dbPath := config.IndexDBPath(cwd)
+	if err := store.Init(dbPath); err != nil {
+		slog.Error("failed to init store", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	stats, err := store.GetTodoStats("")
+	if err != nil {
+		slog.Error("failed to get todo stats", "error", err)
+		os.Exit(1)
+	}
+
+	jsonResult, _ := json.MarshalIndent(stats, "", "  ")
+	fmt.Println(string(jsonResult))
 }
