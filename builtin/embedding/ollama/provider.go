@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -170,9 +171,64 @@ func (p *Provider) MaxBatchSize() int {
 }
 
 // Warmup pre-loads the model into Ollama's memory.
+// If the model is not found, it attempts to pull it automatically.
 func (p *Provider) Warmup(ctx context.Context) error {
 	// Send a dummy embedding request to load the model
 	_, err := p.embedSingle(ctx, "warmup")
+	if err != nil && isModelNotFound(err) {
+		// Try to pull the model
+		if pullErr := p.PullModel(ctx); pullErr != nil {
+			return fmt.Errorf("model not found and pull failed: %w", pullErr)
+		}
+		// Retry warmup after pull
+		_, err = p.embedSingle(ctx, "warmup")
+	}
+	return err
+}
+
+// isModelNotFound checks if the error indicates model is not found.
+func isModelNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "not found") || strings.Contains(errStr, "404")
+}
+
+// PullModel downloads the model from Ollama registry.
+func (p *Provider) PullModel(ctx context.Context) error {
+	reqBody := map[string]any{
+		"name":   p.config.Model,
+		"stream": false,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+
+	// Use longer timeout for model pull (can take minutes)
+	client := &http.Client{Timeout: 30 * time.Minute}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", p.config.Endpoint+"/api/pull", bytes.NewReader(jsonBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("pull request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("pull failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Read response to completion (model is being downloaded)
+	_, err = io.Copy(io.Discard, resp.Body)
 	return err
 }
 
