@@ -172,6 +172,38 @@ var detectCmd = &cobra.Command{
 	},
 }
 
+var initCmd = &cobra.Command{
+	Use:   "init [path]",
+	Short: "Initialize project with interactive setup wizard",
+	Long: `Initialize a new project with an interactive setup wizard.
+
+The wizard will:
+1. Detect your environment (Ollama, OpenAI, system resources)
+2. Analyze your project (languages, size, complexity)
+3. Recommend optimal settings
+4. Let you choose a preset or customize settings
+5. Create the configuration file
+6. Optionally start indexing
+
+Examples:
+  mcp-codewizard init           # Initialize current directory
+  mcp-codewizard init ./myapp   # Initialize specific directory
+  mcp-codewizard init --preset recommended  # Skip prompts, use recommended
+  mcp-codewizard init --preset fast         # Skip prompts, use fast preset`,
+	Args: cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		path := "."
+		if len(args) > 0 {
+			path = args[0]
+		}
+		preset, _ := cmd.Flags().GetString("preset")
+		skipIndex, _ := cmd.Flags().GetBool("no-index")
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+
+		runInit(path, preset, skipIndex, jsonOutput)
+	},
+}
+
 var pluginCmd = &cobra.Command{
 	Use:   "plugin",
 	Short: "Plugin management",
@@ -298,6 +330,10 @@ func init() {
 
 	watchCmd.Flags().Int("debounce", 500, "debounce time in milliseconds")
 
+	initCmd.Flags().String("preset", "", "use preset (recommended, quality, fast)")
+	initCmd.Flags().Bool("no-index", false, "skip indexing after init")
+	initCmd.Flags().Bool("json", false, "output as JSON (for MCP integration)")
+
 	configCmd.AddCommand(configInitCmd)
 	configCmd.AddCommand(configValidateCmd)
 
@@ -329,6 +365,7 @@ func init() {
 	memoryCmd.AddCommand(memoryInstallHooksCmd)
 
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(indexCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -855,6 +892,209 @@ func runDetect() {
 	// Output as JSON
 	output, _ := json.MarshalIndent(result, "", "  ")
 	fmt.Println(string(output))
+}
+
+func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		slog.Error("invalid path", "error", err)
+		os.Exit(1)
+	}
+
+	// Check if config already exists
+	configPath := config.ConfigPath(absPath)
+	if _, err := os.Stat(configPath); err == nil {
+		if !jsonOutput {
+			fmt.Printf("Config already exists at %s\n", configPath)
+			fmt.Print("Overwrite? (y/N): ")
+			var response string
+			_, _ = fmt.Scanln(&response)
+			if response != "y" && response != "Y" {
+				fmt.Println("Aborted.")
+				return
+			}
+		}
+	}
+
+	wiz := wizard.New(absPath)
+
+	// Phase 1: Detect environment
+	if !jsonOutput {
+		fmt.Println("Detecting environment...")
+	}
+
+	ctx := context.Background()
+	env, err := wiz.DetectEnvironment(ctx)
+	if err != nil {
+		slog.Error("detection failed", "error", err)
+		os.Exit(1)
+	}
+
+	// JSON output mode (for MCP integration)
+	if jsonOutput {
+		state := wizard.InitWizardState{
+			Environment: env,
+			Options:     wiz.GetInitOptions(env),
+			Ready:       false,
+		}
+
+		if preset != "" {
+			// Apply preset directly
+			cfg := wiz.ApplyPreset(env, preset)
+			state.Config = cfg
+			state.Selections = map[string]string{"preset": preset}
+			state.Ready = true
+		}
+
+		output, _ := json.MarshalIndent(state, "", "  ")
+		fmt.Println(string(output))
+		return
+	}
+
+	// Phase 2: Show environment summary
+	fmt.Println()
+	fmt.Println(wizard.FormatEnvironmentSummary(env))
+
+	// Phase 3: Get user choice
+	var cfg *config.Config
+
+	if preset != "" {
+		// Use preset from command line
+		cfg = wiz.ApplyPreset(env, preset)
+		fmt.Printf("\nUsing '%s' preset.\n", preset)
+	} else {
+		// Interactive mode
+		fmt.Println("\n=== Configuration ===")
+		fmt.Println("Choose a preset:")
+		fmt.Println()
+
+		options := wiz.GetInitOptions(env)
+
+		// Find preset option
+		var presetOption *wizard.InitOption
+		for i := range options {
+			if options[i].ID == "preset" {
+				presetOption = &options[i]
+				break
+			}
+		}
+
+		if presetOption != nil {
+			for i, choice := range presetOption.Choices {
+				marker := "  "
+				if choice.Recommended {
+					marker = "* "
+				}
+				availMark := ""
+				if !choice.Available {
+					availMark = " (unavailable)"
+				}
+				fmt.Printf("  %s[%d] %s - %s%s\n", marker, i+1, choice.Label, choice.Description, availMark)
+			}
+		}
+
+		fmt.Println()
+		fmt.Print("Select preset [1]: ")
+		var input string
+		_, _ = fmt.Scanln(&input)
+
+		// Parse selection
+		selection := 1
+		if input != "" {
+			_, _ = fmt.Sscanf(input, "%d", &selection)
+		}
+
+		// Map selection to preset
+		if presetOption != nil && selection >= 1 && selection <= len(presetOption.Choices) {
+			selectedPreset := presetOption.Choices[selection-1].ID
+			if selectedPreset == "custom" {
+				cfg = runInteractiveCustomSetup(wiz, env, options)
+			} else {
+				cfg = wiz.ApplyPreset(env, selectedPreset)
+				fmt.Printf("\nUsing '%s' preset.\n", selectedPreset)
+			}
+		} else {
+			cfg = wiz.ApplyPreset(env, "recommended")
+			fmt.Println("\nUsing 'recommended' preset.")
+		}
+	}
+
+	// Phase 4: Show config summary and save
+	fmt.Println()
+	fmt.Println(wizard.FormatConfigSummary(cfg))
+
+	if err := config.Save(absPath, cfg); err != nil {
+		slog.Error("failed to save config", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Configuration saved to %s\n", configPath)
+
+	// Phase 5: Optionally start indexing
+	if !skipIndex {
+		fmt.Println()
+		fmt.Print("Start indexing now? (Y/n): ")
+		var response string
+		_, _ = fmt.Scanln(&response)
+		if response == "" || response == "y" || response == "Y" {
+			fmt.Println()
+			runIndex(absPath, false)
+		}
+	}
+}
+
+func runInteractiveCustomSetup(wiz *wizard.Wizard, env *wizard.DetectEnvironmentResult, options []wizard.InitOption) *config.Config {
+	selections := make(map[string]string)
+
+	fmt.Println("\n=== Custom Configuration ===")
+	fmt.Println("(* = recommended)")
+	fmt.Println()
+
+	for _, opt := range options {
+		if opt.ID == "preset" {
+			continue // Skip preset option, we're doing custom
+		}
+
+		fmt.Printf("%s:\n", opt.Name)
+		fmt.Printf("  %s\n\n", opt.Description)
+
+		for i, choice := range opt.Choices {
+			marker := "  "
+			if choice.Recommended {
+				marker = "* "
+			}
+
+			warning := ""
+			if choice.Warning != "" {
+				warning = fmt.Sprintf(" [%s]", choice.Warning)
+			}
+
+			fmt.Printf("  %s[%d] %s%s\n", marker, i+1, choice.Label, warning)
+			fmt.Printf("      %s\n", choice.Description)
+		}
+
+		defaultChoice := opt.Default + 1
+		fmt.Printf("\nSelect [%d]: ", defaultChoice)
+
+		var input string
+		_, _ = fmt.Scanln(&input)
+
+		selection := defaultChoice
+		if input != "" {
+			_, _ = fmt.Sscanf(input, "%d", &selection)
+		}
+
+		if selection >= 1 && selection <= len(opt.Choices) {
+			selections[opt.ID] = opt.Choices[selection-1].ID
+		} else {
+			selections[opt.ID] = opt.Choices[opt.Default].ID
+		}
+
+		fmt.Println()
+	}
+
+	selections["preset"] = "custom"
+	return wiz.ApplySelections(env, selections)
 }
 
 func formatBytes(bytes int64) string {

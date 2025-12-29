@@ -175,6 +175,14 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) {
 		mcp.WithString("preset", mcp.Required(), mcp.Description("Preset to apply: primary, low_memory, high_quality, fast_index")),
 	), s.handleApplyRecommendation)
 
+	// init_project - Interactive project initialization wizard
+	mcpServer.AddTool(mcp.NewTool("init_project",
+		mcp.WithDescription("Initialize project with interactive setup wizard. Returns available options based on detected environment, or applies selections if provided."),
+		mcp.WithString("preset", mcp.Description("Quick setup with preset: recommended, quality, fast, custom")),
+		mcp.WithObject("selections", mcp.Description("Custom selections map: {embedding: 'ollama'|'openai', reranker: 'enabled'|'disabled', chunking: 'treesitter'|'simple', search: 'hybrid'|'vector'|'bm25'}")),
+		mcp.WithBoolean("start_indexing", mcp.Description("Start indexing after configuration (default: false)")),
+	), s.handleInitProject)
+
 	// Analysis tools
 
 	// get_blame - Get git blame information
@@ -918,6 +926,101 @@ func (s *Server) handleApplyRecommendation(ctx context.Context, req mcp.CallTool
 	}
 
 	jsonResult, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(jsonResult)), nil
+}
+
+func (s *Server) handleInitProject(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	preset := req.GetString("preset", "")
+	startIndexing := req.GetBool("start_indexing", false)
+
+	// Parse selections if provided
+	var selections map[string]string
+	if args, ok := req.Params.Arguments.(map[string]any); ok {
+		if selectionsRaw, ok := args["selections"].(map[string]any); ok {
+			selections = make(map[string]string)
+			for k, v := range selectionsRaw {
+				if str, ok := v.(string); ok {
+					selections[k] = str
+				}
+			}
+		}
+	}
+
+	w := wizard.New(s.projectDir)
+
+	// Detect environment
+	env, err := w.DetectEnvironment(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to detect environment: %v", err)), nil
+	}
+
+	// Get available options
+	options := w.GetInitOptions(env)
+
+	// Build response state
+	state := wizard.InitWizardState{
+		Environment: env,
+		Options:     options,
+		Ready:       false,
+	}
+
+	var cfg *config.Config
+
+	// Apply preset or selections if provided
+	if preset != "" {
+		cfg = w.ApplyPreset(env, preset)
+		state.Selections = map[string]string{"preset": preset}
+		state.Ready = true
+	} else if len(selections) > 0 {
+		cfg = w.ApplySelections(env, selections)
+		state.Selections = selections
+		state.Ready = true
+	}
+
+	// If we have a config, save it
+	if cfg != nil {
+		state.Config = cfg
+
+		if err := config.Save(s.projectDir, cfg); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to save config: %v", err)), nil
+		}
+
+		state.Messages = append(state.Messages, fmt.Sprintf("Configuration saved to %s", config.ConfigPath(s.projectDir)))
+
+		// Start indexing if requested
+		if startIndexing {
+			state.Messages = append(state.Messages, "Starting indexing...")
+
+			// Create indexer
+			indexer := index.New(index.Config{
+				ProjectDir: s.projectDir,
+				Config:     cfg,
+				Store:      s.store,
+				Embedding:  s.embedding,
+				Chunker:    s.chunker,
+			})
+
+			if err := indexer.Index(ctx, false); err != nil {
+				state.Messages = append(state.Messages, fmt.Sprintf("Indexing failed: %v", err))
+			} else {
+				stats, _ := s.store.GetStats()
+				if stats != nil {
+					state.Messages = append(state.Messages,
+						fmt.Sprintf("Indexing complete: %d files, %d chunks, %d symbols",
+							stats.IndexedFiles, stats.TotalChunks, stats.TotalSymbols))
+				}
+			}
+		}
+	}
+
+	// Add environment summary
+	state.Messages = append([]string{wizard.FormatEnvironmentSummary(env)}, state.Messages...)
+
+	if cfg != nil {
+		state.Messages = append(state.Messages, wizard.FormatConfigSummary(cfg))
+	}
+
+	jsonResult, _ := json.MarshalIndent(state, "", "  ")
 	return mcp.NewToolResultText(string(jsonResult)), nil
 }
 
