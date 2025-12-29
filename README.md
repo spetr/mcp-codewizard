@@ -43,7 +43,7 @@ mcp-codewizard solves all of this by creating a local semantic index of your cod
 - **Plugin Architecture** - Swap embedding providers, chunking strategies, vector stores
 - **Incremental Indexing** - Only re-index changed files
 - **Parallel Processing** - Fast indexing using all CPU cores
-- **TreeSitter Parsing** - Language-aware code chunking for 14 languages
+- **TreeSitter Parsing** - Language-aware code chunking for 18 languages
 - **Local-First** - Everything runs on your machine with Ollama
 
 ## Quick Start
@@ -200,6 +200,8 @@ index:
     - "**/*.kt"
     - "**/*.swift"
     - "**/*.scala"
+    - "**/*.html"
+    - "**/*.svelte"
   exclude:
     - "**/vendor/**"
     - "**/node_modules/**"
@@ -436,7 +438,7 @@ provider.RegisterEmbedding("my-provider", func(cfg provider.EmbeddingConfig) (pr
 
 ## Supported Languages
 
-TreeSitter chunking provides full AST-aware parsing for 14 languages:
+TreeSitter chunking provides full AST-aware parsing for 18 languages:
 
 | Language | Extensions | Symbol Extraction |
 |----------|------------|-------------------|
@@ -454,6 +456,18 @@ TreeSitter chunking provides full AST-aware parsing for 14 languages:
 | Kotlin | `.kt`, `.kts` | Functions, classes, objects, interfaces |
 | Swift | `.swift` | Functions, classes, structs, protocols, extensions |
 | Scala | `.scala`, `.sc` | Functions, classes, objects, traits |
+| **HTML** | `.html`, `.htm`, `.xhtml` | Embedded JavaScript extraction |
+| **Svelte** | `.svelte` | Embedded JavaScript + expressions |
+
+### Embedded JavaScript Support
+
+HTML, Svelte, and PHP files contain embedded JavaScript that is automatically extracted and indexed:
+
+- **HTML/XHTML**: Extracts `<script>` tags (inline and module)
+- **Svelte**: Extracts `<script>` tags and `{expression}` syntax
+- **PHP**: Extracts JavaScript from HTML parts, handles `<?php ?>`, `<? ?>`, and `<?= ?>` tags
+
+This ensures that JavaScript code in template files is searchable and analyzed just like standalone JS files.
 
 All languages support:
 - **Chunking** - Semantic code splitting based on AST structure

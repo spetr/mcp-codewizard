@@ -201,6 +201,7 @@ func (s *Store) createSchema() error {
 			file_path TEXT NOT NULL,
 			start_line INTEGER NOT NULL,
 			end_line INTEGER NOT NULL,
+			line_count INTEGER NOT NULL DEFAULT 1,
 			signature TEXT,
 			visibility TEXT,
 			doc_comment TEXT
@@ -219,6 +220,10 @@ func (s *Store) createSchema() error {
 		return err
 	}
 	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_symbols_file_path ON symbols(file_path)`)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_symbols_line_count ON symbols(line_count)`)
 	if err != nil {
 		return err
 	}
@@ -768,8 +773,8 @@ func (s *Store) StoreSymbols(symbols []*types.Symbol) error {
 
 	stmt, err := tx.Prepare(`
 		INSERT OR REPLACE INTO symbols
-		(id, name, kind, file_path, start_line, end_line, signature, visibility, doc_comment)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, name, kind, file_path, start_line, end_line, line_count, signature, visibility, doc_comment)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return err
@@ -777,9 +782,13 @@ func (s *Store) StoreSymbols(symbols []*types.Symbol) error {
 	defer stmt.Close()
 
 	for _, sym := range symbols {
+		lineCount := sym.LineCount
+		if lineCount == 0 {
+			lineCount = sym.ComputeLineCount()
+		}
 		_, err := stmt.Exec(
 			sym.ID, sym.Name, string(sym.Kind), sym.FilePath,
-			sym.StartLine, sym.EndLine, sym.Signature, sym.Visibility, sym.DocComment,
+			sym.StartLine, sym.EndLine, lineCount, sym.Signature, sym.Visibility, sym.DocComment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to store symbol %s: %w", sym.ID, err)
@@ -792,7 +801,7 @@ func (s *Store) StoreSymbols(symbols []*types.Symbol) error {
 // GetSymbol retrieves a symbol by ID.
 func (s *Store) GetSymbol(id string) (*types.Symbol, error) {
 	row := s.db.QueryRow(`
-		SELECT id, name, kind, file_path, start_line, end_line, signature, visibility, doc_comment
+		SELECT id, name, kind, file_path, start_line, end_line, line_count, signature, visibility, doc_comment
 		FROM symbols WHERE id = ?
 	`, id)
 
@@ -802,7 +811,7 @@ func (s *Store) GetSymbol(id string) (*types.Symbol, error) {
 
 	err := row.Scan(
 		&sym.ID, &sym.Name, &kind, &sym.FilePath,
-		&sym.StartLine, &sym.EndLine, &signature, &visibility, &docComment,
+		&sym.StartLine, &sym.EndLine, &sym.LineCount, &signature, &visibility, &docComment,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -821,15 +830,41 @@ func (s *Store) GetSymbol(id string) (*types.Symbol, error) {
 
 // FindSymbols searches symbols by name pattern and kind.
 func (s *Store) FindSymbols(query string, kind types.SymbolKind, limit int) ([]*types.Symbol, error) {
+	return s.FindSymbolsAdvanced(query, kind, 0, "", limit)
+}
+
+// FindSymbolsAdvanced searches symbols with additional filtering options.
+// minLines: minimum line count (0 = no filter)
+// sortBy: "lines" to sort by line_count descending, "name" for name ascending, "" for default
+func (s *Store) FindSymbolsAdvanced(query string, kind types.SymbolKind, minLines int, sortBy string, limit int) ([]*types.Symbol, error) {
 	sqlQuery := `
-		SELECT id, name, kind, file_path, start_line, end_line, signature, visibility, doc_comment
-		FROM symbols WHERE name LIKE ?
+		SELECT id, name, kind, file_path, start_line, end_line, line_count, signature, visibility, doc_comment
+		FROM symbols WHERE 1=1
 	`
-	args := []any{"%" + query + "%"}
+	args := []any{}
+
+	if query != "" {
+		sqlQuery += " AND name LIKE ?"
+		args = append(args, "%"+query+"%")
+	}
 
 	if kind != "" {
 		sqlQuery += " AND kind = ?"
 		args = append(args, string(kind))
+	}
+
+	if minLines > 0 {
+		sqlQuery += " AND line_count >= ?"
+		args = append(args, minLines)
+	}
+
+	switch sortBy {
+	case "lines":
+		sqlQuery += " ORDER BY line_count DESC"
+	case "name":
+		sqlQuery += " ORDER BY name ASC"
+	default:
+		sqlQuery += " ORDER BY name ASC"
 	}
 
 	sqlQuery += " LIMIT ?"
@@ -849,7 +884,49 @@ func (s *Store) FindSymbols(query string, kind types.SymbolKind, limit int) ([]*
 
 		err := rows.Scan(
 			&sym.ID, &sym.Name, &kindStr, &sym.FilePath,
-			&sym.StartLine, &sym.EndLine, &signature, &visibility, &docComment,
+			&sym.StartLine, &sym.EndLine, &sym.LineCount, &signature, &visibility, &docComment,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		sym.Kind = types.SymbolKind(kindStr)
+		sym.Signature = signature.String
+		sym.Visibility = visibility.String
+		sym.DocComment = docComment.String
+
+		symbols = append(symbols, &sym)
+	}
+
+	return symbols, nil
+}
+
+// FindLongFunctions returns functions sorted by line count (longest first).
+func (s *Store) FindLongFunctions(minLines int, limit int) ([]*types.Symbol, error) {
+	sqlQuery := `
+		SELECT id, name, kind, file_path, start_line, end_line, line_count, signature, visibility, doc_comment
+		FROM symbols
+		WHERE kind IN ('function', 'method')
+		AND line_count >= ?
+		ORDER BY line_count DESC
+		LIMIT ?
+	`
+
+	rows, err := s.db.Query(sqlQuery, minLines, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var symbols []*types.Symbol
+	for rows.Next() {
+		var sym types.Symbol
+		var kindStr string
+		var signature, visibility, docComment sql.NullString
+
+		err := rows.Scan(
+			&sym.ID, &sym.Name, &kindStr, &sym.FilePath,
+			&sym.StartLine, &sym.EndLine, &sym.LineCount, &signature, &visibility, &docComment,
 		)
 		if err != nil {
 			return nil, err

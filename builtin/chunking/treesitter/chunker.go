@@ -13,6 +13,7 @@ import (
 	"github.com/smacker/go-tree-sitter/cpp"
 	"github.com/smacker/go-tree-sitter/csharp"
 	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/html"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
 	"github.com/smacker/go-tree-sitter/kotlin"
@@ -21,6 +22,7 @@ import (
 	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/smacker/go-tree-sitter/rust"
 	"github.com/smacker/go-tree-sitter/scala"
+	"github.com/smacker/go-tree-sitter/svelte"
 	"github.com/smacker/go-tree-sitter/swift"
 	"github.com/smacker/go-tree-sitter/typescript/tsx"
 	tstype "github.com/smacker/go-tree-sitter/typescript/typescript"
@@ -98,6 +100,10 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = swift.GetLanguage()
 	case "scala", "sc":
 		language = scala.GetLanguage()
+	case "html", "htm", "xhtml":
+		language = html.GetLanguage()
+	case "svelte":
+		language = svelte.GetLanguage()
 	default:
 		return nil, nil, false
 	}
@@ -110,6 +116,11 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 
 // Chunk splits a file into semantic chunks based on AST structure.
 func (c *Chunker) Chunk(file *types.SourceFile) ([]*types.Chunk, error) {
+	// Handle languages with embedded JavaScript
+	if IsEmbeddedJSLanguage(file.Language) {
+		return c.chunkEmbeddedLanguage(file)
+	}
+
 	parser, _, ok := c.getParser(file.Language)
 	if !ok {
 		// Fall back to simple chunking for unsupported languages
@@ -135,13 +146,21 @@ func (c *Chunker) Chunk(file *types.SourceFile) ([]*types.Chunk, error) {
 
 	// If no chunks were created, create one for the whole file
 	if len(chunks) == 0 && len(content) > 0 {
-		hash := sha256.Sum256([]byte(content))
+		// Truncate if necessary to avoid embedding failures
+		chunkContent := content
+		name := ""
+		if len(chunkContent) > maxChars {
+			chunkContent = chunkContent[:maxChars]
+			name = "(truncated)"
+		}
+		hash := sha256.Sum256([]byte(chunkContent))
 		chunks = append(chunks, &types.Chunk{
 			ID:        fmt.Sprintf("%s:1:%s", file.Path, hex.EncodeToString(hash[:8])),
 			FilePath:  file.Path,
 			Language:  file.Language,
-			Content:   content,
+			Content:   chunkContent,
 			ChunkType: types.ChunkTypeFile,
+			Name:      name,
 			StartLine: 1,
 			EndLine:   len(lines),
 			Hash:      hex.EncodeToString(hash[:]),
@@ -479,9 +498,24 @@ func (c *Chunker) findChildNodeByType(node *sitter.Node, childType string) *sitt
 }
 
 // createChunk creates a chunk and appends it to the list.
+// If content exceeds maxChunkSize, it will be truncated to avoid embedding failures.
 func (c *Chunker) createChunk(file *types.SourceFile, content string, chunkType types.ChunkType, name, parentName string, startLine, endLine int, chunks *[]*types.Chunk) {
+	maxChars := c.config.MaxChunkSize * CharsPerToken
+
+	// Truncate oversized chunks to prevent embedding failures
+	truncated := false
+	if len(content) > maxChars {
+		content = content[:maxChars]
+		truncated = true
+	}
+
 	hash := sha256.Sum256([]byte(content))
 	hashStr := hex.EncodeToString(hash[:8])
+
+	chunkName := name
+	if truncated && name != "" {
+		chunkName = name + " (truncated)"
+	}
 
 	chunk := &types.Chunk{
 		ID:         fmt.Sprintf("%s:%d:%s", file.Path, startLine, hashStr),
@@ -489,7 +523,7 @@ func (c *Chunker) createChunk(file *types.SourceFile, content string, chunkType 
 		Language:   file.Language,
 		Content:    content,
 		ChunkType:  chunkType,
-		Name:       name,
+		Name:       chunkName,
 		ParentName: parentName,
 		StartLine:  startLine,
 		EndLine:    endLine,
@@ -505,6 +539,7 @@ func (c *Chunker) SupportedLanguages() []string {
 		"go", "python", "javascript", "typescript", "jsx", "tsx",
 		"rust", "java", "c", "cpp", "h",
 		"ruby", "php", "csharp", "kotlin", "swift", "scala",
+		"html", "htm", "xhtml", "svelte",
 	}
 }
 
@@ -516,6 +551,11 @@ func (c *Chunker) SupportsLanguage(lang string) bool {
 
 // ExtractSymbols extracts symbols from a file using Tree-sitter.
 func (c *Chunker) ExtractSymbols(file *types.SourceFile) ([]*types.Symbol, error) {
+	// Handle languages with embedded JavaScript
+	if IsEmbeddedJSLanguage(file.Language) {
+		return c.extractSymbolsFromEmbeddedLanguage(file)
+	}
+
 	parser, _, ok := c.getParser(file.Language)
 	if !ok {
 		return nil, nil
@@ -589,6 +629,7 @@ func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.S
 		sym.FilePath = file.Path
 		sym.StartLine = startLine
 		sym.EndLine = endLine
+		sym.LineCount = endLine - startLine + 1
 		sym.ID = fmt.Sprintf("%s:%s:%d", file.Path, sym.Name, startLine)
 
 		// Extract doc comment if present
@@ -1145,6 +1186,11 @@ func (c *Chunker) determineVisibility(name, lang string) string {
 
 // ExtractReferences extracts references from a file.
 func (c *Chunker) ExtractReferences(file *types.SourceFile) ([]*types.Reference, error) {
+	// Handle languages with embedded JavaScript
+	if IsEmbeddedJSLanguage(file.Language) {
+		return c.extractRefsFromEmbeddedLanguage(file)
+	}
+
 	parser, _, ok := c.getParser(file.Language)
 	if !ok {
 		return nil, nil
@@ -2118,6 +2164,84 @@ func (c *Chunker) extractScalaRefs(node *sitter.Node, file *types.SourceFile, co
 			}
 		}
 	}
+}
+
+// chunkEmbeddedLanguage chunks files with embedded JavaScript (HTML, Svelte, PHP).
+func (c *Chunker) chunkEmbeddedLanguage(file *types.SourceFile) ([]*types.Chunk, error) {
+	extractor := NewEmbeddedJSExtractor()
+	defer extractor.Close()
+
+	var scripts []ExtractedScript
+	var err error
+
+	switch file.Language {
+	case "html", "htm", "xhtml":
+		scripts, err = extractor.ExtractFromHTML(file.Content)
+	case "svelte":
+		scripts, err = extractor.ExtractFromSvelte(file.Content)
+	case "php":
+		scripts, err = extractor.ExtractFromPHP(file.Content)
+	default:
+		return nil, fmt.Errorf("unsupported embedded JS language: %s", file.Language)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return c.ChunkEmbeddedJS(file, scripts)
+}
+
+// extractSymbolsFromEmbeddedLanguage extracts symbols from embedded JavaScript.
+func (c *Chunker) extractSymbolsFromEmbeddedLanguage(file *types.SourceFile) ([]*types.Symbol, error) {
+	extractor := NewEmbeddedJSExtractor()
+	defer extractor.Close()
+
+	var scripts []ExtractedScript
+	var err error
+
+	switch file.Language {
+	case "html", "htm", "xhtml":
+		scripts, err = extractor.ExtractFromHTML(file.Content)
+	case "svelte":
+		scripts, err = extractor.ExtractFromSvelte(file.Content)
+	case "php":
+		scripts, err = extractor.ExtractFromPHP(file.Content)
+	default:
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return c.ExtractSymbolsFromEmbeddedJS(file, scripts)
+}
+
+// extractRefsFromEmbeddedLanguage extracts references from embedded JavaScript.
+func (c *Chunker) extractRefsFromEmbeddedLanguage(file *types.SourceFile) ([]*types.Reference, error) {
+	extractor := NewEmbeddedJSExtractor()
+	defer extractor.Close()
+
+	var scripts []ExtractedScript
+	var err error
+
+	switch file.Language {
+	case "html", "htm", "xhtml":
+		scripts, err = extractor.ExtractFromHTML(file.Content)
+	case "svelte":
+		scripts, err = extractor.ExtractFromSvelte(file.Content)
+	case "php":
+		scripts, err = extractor.ExtractFromPHP(file.Content)
+	default:
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return c.ExtractRefsFromEmbeddedJS(file, scripts)
 }
 
 // Close releases resources.

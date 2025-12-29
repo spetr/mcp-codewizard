@@ -133,11 +133,22 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) {
 
 	// get_symbols - List symbols
 	mcpServer.AddTool(mcp.NewTool("get_symbols",
-		mcp.WithDescription("Search for symbols by name"),
+		mcp.WithDescription("Search for symbols by name with optional filtering by line count"),
 		mcp.WithString("query", mcp.Description("Symbol name pattern")),
 		mcp.WithString("kind", mcp.Description("Symbol kind: function, type, variable, constant, interface, method")),
+		mcp.WithNumber("min_lines", mcp.Description("Minimum line count filter (e.g., 50 for functions over 50 lines)")),
+		mcp.WithString("sort_by", mcp.Description("Sort order: 'lines' (longest first), 'name' (alphabetical)")),
 		mcp.WithNumber("limit", mcp.Description("Maximum results")),
 	), s.handleGetSymbols)
+
+	// get_refactoring_candidates - Find code that may need refactoring
+	mcpServer.AddTool(mcp.NewTool("get_refactoring_candidates",
+		mcp.WithDescription("Find functions and code that may need refactoring (long functions, high complexity, deep nesting)"),
+		mcp.WithNumber("min_lines", mcp.Description("Minimum function length to flag (default: 50)")),
+		mcp.WithNumber("max_complexity", mcp.Description("Maximum cyclomatic complexity before flagging (default: 10)")),
+		mcp.WithNumber("max_nesting", mcp.Description("Maximum nesting depth before flagging (default: 4)")),
+		mcp.WithNumber("limit", mcp.Description("Maximum results per category (default: 20)")),
+	), s.handleGetRefactoringCandidates)
 
 	// get_entry_points - Find entry points
 	mcpServer.AddTool(mcp.NewTool("get_entry_points",
@@ -648,11 +659,13 @@ func (s *Server) handleGetCallees(ctx context.Context, req mcp.CallToolRequest) 
 func (s *Server) handleGetSymbols(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	query := req.GetString("query", "")
 	kindStr := req.GetString("kind", "")
+	minLines := req.GetInt("min_lines", 0)
+	sortBy := req.GetString("sort_by", "")
 	limit := req.GetInt("limit", 50)
 
 	kind := types.SymbolKind(kindStr)
 
-	symbols, err := s.search.SearchSymbols(query, kind, limit)
+	symbols, err := s.search.SearchSymbolsAdvanced(query, kind, minLines, sortBy, limit)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to search symbols: %v", err)), nil
 	}
@@ -666,12 +679,87 @@ func (s *Server) handleGetSymbols(ctx context.Context, req mcp.CallToolRequest) 
 			"file":       sym.FilePath,
 			"start_line": sym.StartLine,
 			"end_line":   sym.EndLine,
+			"line_count": sym.LineCount,
 			"signature":  sym.Signature,
 			"visibility": sym.Visibility,
 		})
 	}
 
 	jsonResult, _ := json.MarshalIndent(formatted, "", "  ")
+	return mcp.NewToolResultText(string(jsonResult)), nil
+}
+
+func (s *Server) handleGetRefactoringCandidates(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	minLines := req.GetInt("min_lines", 50)
+	maxComplexity := req.GetInt("max_complexity", 10)
+	maxNesting := req.GetInt("max_nesting", 4)
+	limit := req.GetInt("limit", 20)
+
+	result := map[string]any{
+		"thresholds": map[string]any{
+			"min_lines":      minLines,
+			"max_complexity": maxComplexity,
+			"max_nesting":    maxNesting,
+		},
+	}
+
+	// Get long functions
+	longFunctions, err := s.search.FindLongFunctions(minLines, limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to find long functions: %v", err)), nil
+	}
+
+	var longFormatted []map[string]any
+	for _, sym := range longFunctions {
+		longFormatted = append(longFormatted, map[string]any{
+			"name":       sym.Name,
+			"file":       sym.FilePath,
+			"start_line": sym.StartLine,
+			"end_line":   sym.EndLine,
+			"line_count": sym.LineCount,
+			"signature":  sym.Signature,
+		})
+	}
+	result["long_functions"] = longFormatted
+
+	// Get high complexity functions using existing complexity analysis
+	highComplexity, err := s.search.FindHighComplexityFunctions(maxComplexity, maxNesting, limit)
+	if err == nil && len(highComplexity) > 0 {
+		var complexFormatted []map[string]any
+		for _, item := range highComplexity {
+			complexFormatted = append(complexFormatted, map[string]any{
+				"name":                 item.Name,
+				"file":                 item.FilePath,
+				"start_line":           item.StartLine,
+				"end_line":             item.EndLine,
+				"line_count":           item.LineCount,
+				"cyclomatic_complexity": item.CyclomaticComplexity,
+				"cognitive_complexity":  item.CognitiveComplexity,
+				"max_nesting":          item.MaxNesting,
+			})
+		}
+		result["high_complexity"] = complexFormatted
+	}
+
+	// Get dead code (unused functions)
+	deadCodeAnalyzer := analysis.NewDeadCodeAnalyzer(s.store)
+	deadCode, err := deadCodeAnalyzer.FindDeadFunctions(limit)
+	if err == nil && len(deadCode) > 0 {
+		var deadFormatted []map[string]any
+		for _, dc := range deadCode {
+			deadFormatted = append(deadFormatted, map[string]any{
+				"name":       dc.Symbol.Name,
+				"file":       dc.Symbol.FilePath,
+				"start_line": dc.Symbol.StartLine,
+				"end_line":   dc.Symbol.EndLine,
+				"line_count": dc.Symbol.LineCount,
+				"reason":     dc.Reason,
+			})
+		}
+		result["dead_code"] = deadFormatted
+	}
+
+	jsonResult, _ := json.MarshalIndent(result, "", "  ")
 	return mcp.NewToolResultText(string(jsonResult)), nil
 }
 

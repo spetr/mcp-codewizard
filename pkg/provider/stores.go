@@ -30,6 +30,14 @@ type SymbolStore interface {
 
 	// FindSymbols searches symbols by name pattern and kind.
 	FindSymbols(query string, kind types.SymbolKind, limit int) ([]*types.Symbol, error)
+
+	// FindSymbolsAdvanced searches symbols with additional filtering options.
+	// minLines: minimum line count (0 = no filter)
+	// sortBy: "lines" for line_count descending, "name" for name ascending
+	FindSymbolsAdvanced(query string, kind types.SymbolKind, minLines int, sortBy string, limit int) ([]*types.Symbol, error)
+
+	// FindLongFunctions returns functions sorted by line count (longest first).
+	FindLongFunctions(minLines int, limit int) ([]*types.Symbol, error)
 }
 
 // ReferenceStore handles reference storage operations.
@@ -144,6 +152,12 @@ func (v *vectorStoreValidator) Search(ctx context.Context, req *types.SearchRequ
 func (v *vectorStoreValidator) StoreSymbols(symbols []*types.Symbol) error           { return nil }
 func (v *vectorStoreValidator) GetSymbol(id string) (*types.Symbol, error)           { return nil, nil }
 func (v *vectorStoreValidator) FindSymbols(query string, kind types.SymbolKind, limit int) ([]*types.Symbol, error) {
+	return nil, nil
+}
+func (v *vectorStoreValidator) FindSymbolsAdvanced(query string, kind types.SymbolKind, minLines int, sortBy string, limit int) ([]*types.Symbol, error) {
+	return nil, nil
+}
+func (v *vectorStoreValidator) FindLongFunctions(minLines int, limit int) ([]*types.Symbol, error) {
 	return nil, nil
 }
 func (v *vectorStoreValidator) StoreReferences(refs []*types.Reference) error { return nil }

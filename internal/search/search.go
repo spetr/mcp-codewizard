@@ -184,6 +184,75 @@ func (e *Engine) SearchSymbols(query string, kind types.SymbolKind, limit int) (
 	return e.store.FindSymbols(query, kind, limit)
 }
 
+// SearchSymbolsAdvanced searches for symbols with additional filtering options.
+func (e *Engine) SearchSymbolsAdvanced(query string, kind types.SymbolKind, minLines int, sortBy string, limit int) ([]*types.Symbol, error) {
+	return e.store.FindSymbolsAdvanced(query, kind, minLines, sortBy, limit)
+}
+
+// FindLongFunctions returns functions sorted by line count (longest first).
+func (e *Engine) FindLongFunctions(minLines int, limit int) ([]*types.Symbol, error) {
+	return e.store.FindLongFunctions(minLines, limit)
+}
+
+// ComplexityCandidate represents a function with high complexity metrics.
+type ComplexityCandidate struct {
+	Name                 string `json:"name"`
+	FilePath             string `json:"file_path"`
+	StartLine            int    `json:"start_line"`
+	EndLine              int    `json:"end_line"`
+	LineCount            int    `json:"line_count"`
+	CyclomaticComplexity int    `json:"cyclomatic_complexity"`
+	CognitiveComplexity  int    `json:"cognitive_complexity"`
+	MaxNesting           int    `json:"max_nesting"`
+}
+
+// FindHighComplexityFunctions finds functions with complexity above thresholds.
+// This is a simplified implementation that uses line count as a proxy for complexity.
+// For accurate complexity metrics, use the analysis package on specific files.
+func (e *Engine) FindHighComplexityFunctions(maxComplexity, maxNesting, limit int) ([]*ComplexityCandidate, error) {
+	// Get long functions as candidates (longer functions tend to have higher complexity)
+	// Minimum 30 lines to be considered for complexity analysis
+	symbols, err := e.store.FindLongFunctions(30, limit*3)
+	if err != nil {
+		return nil, err
+	}
+
+	var candidates []*ComplexityCandidate
+	for _, sym := range symbols {
+		// Estimate complexity based on line count as a simple heuristic
+		// Actual cyclomatic complexity requires parsing the code
+		estimatedComplexity := sym.LineCount / 5 // rough estimate: 1 complexity point per 5 lines
+		estimatedNesting := 2                     // default estimate
+
+		// Longer functions typically have higher nesting
+		if sym.LineCount > 100 {
+			estimatedNesting = 4
+		} else if sym.LineCount > 50 {
+			estimatedNesting = 3
+		}
+
+		// Only include if exceeds thresholds
+		if estimatedComplexity > maxComplexity || estimatedNesting > maxNesting {
+			candidates = append(candidates, &ComplexityCandidate{
+				Name:                 sym.Name,
+				FilePath:             sym.FilePath,
+				StartLine:            sym.StartLine,
+				EndLine:              sym.EndLine,
+				LineCount:            sym.LineCount,
+				CyclomaticComplexity: estimatedComplexity,
+				CognitiveComplexity:  estimatedComplexity, // simplified
+				MaxNesting:           estimatedNesting,
+			})
+		}
+
+		if len(candidates) >= limit {
+			break
+		}
+	}
+
+	return candidates, nil
+}
+
 // GetCallers returns callers of a symbol.
 func (e *Engine) GetCallers(symbolID string, limit int) ([]*types.Reference, error) {
 	return e.store.GetCallers(symbolID, limit)

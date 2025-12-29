@@ -80,9 +80,18 @@ type Symbol struct {
 	FilePath   string     // File where symbol is defined
 	StartLine  int        // Starting line
 	EndLine    int        // Ending line
+	LineCount  int        // Number of lines (EndLine - StartLine + 1)
 	Signature  string     // For functions: func(x int) error
 	Visibility string     // public, private
 	DocComment string     // Documentation comment
+}
+
+// ComputeLineCount calculates the line count from StartLine and EndLine.
+func (s *Symbol) ComputeLineCount() int {
+	if s.EndLine >= s.StartLine {
+		return s.EndLine - s.StartLine + 1
+	}
+	return 1
 }
 
 // RefKind represents the type of reference.
