@@ -14,8 +14,12 @@ import (
 	"github.com/smacker/go-tree-sitter/cpp"
 	"github.com/smacker/go-tree-sitter/csharp"
 	"github.com/smacker/go-tree-sitter/css"
+	"github.com/smacker/go-tree-sitter/cue"
 	"github.com/smacker/go-tree-sitter/dockerfile"
+	"github.com/smacker/go-tree-sitter/elixir"
+	"github.com/smacker/go-tree-sitter/elm"
 	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/groovy"
 	"github.com/smacker/go-tree-sitter/hcl"
 	"github.com/smacker/go-tree-sitter/html"
 	"github.com/smacker/go-tree-sitter/java"
@@ -23,6 +27,7 @@ import (
 	"github.com/smacker/go-tree-sitter/kotlin"
 	"github.com/smacker/go-tree-sitter/lua"
 	tsmarkdown "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
+	"github.com/smacker/go-tree-sitter/ocaml"
 	"github.com/smacker/go-tree-sitter/php"
 	"github.com/smacker/go-tree-sitter/protobuf"
 	"github.com/smacker/go-tree-sitter/python"
@@ -32,6 +37,7 @@ import (
 	"github.com/smacker/go-tree-sitter/sql"
 	"github.com/smacker/go-tree-sitter/svelte"
 	"github.com/smacker/go-tree-sitter/swift"
+	"github.com/smacker/go-tree-sitter/toml"
 	"github.com/smacker/go-tree-sitter/typescript/tsx"
 	tstype "github.com/smacker/go-tree-sitter/typescript/typescript"
 	"github.com/smacker/go-tree-sitter/yaml"
@@ -131,6 +137,18 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = yaml.GetLanguage()
 	case "hcl", "tf", "terraform":
 		language = hcl.GetLanguage()
+	case "elixir", "ex", "exs":
+		language = elixir.GetLanguage()
+	case "elm":
+		language = elm.GetLanguage()
+	case "groovy", "gradle":
+		language = groovy.GetLanguage()
+	case "ocaml", "ml", "mli":
+		language = ocaml.GetLanguage()
+	case "toml":
+		language = toml.GetLanguage()
+	case "cue":
+		language = cue.GetLanguage()
 	default:
 		return nil, nil, false
 	}
@@ -283,6 +301,18 @@ func (c *Chunker) classifyNode(nodeType string, node *sitter.Node, content strin
 		return c.classifyYAMLNode(nodeType, node, content)
 	case "hcl", "tf", "terraform":
 		return c.classifyHCLNode(nodeType, node, content)
+	case "elixir", "ex", "exs":
+		return c.classifyElixirNode(nodeType, node, content)
+	case "elm":
+		return c.classifyElmNode(nodeType, node, content)
+	case "groovy", "gradle":
+		return c.classifyGroovyNode(nodeType, node, content)
+	case "ocaml", "ml", "mli":
+		return c.classifyOCamlNode(nodeType, node, content)
+	case "toml":
+		return c.classifyTOMLNode(nodeType, node, content)
+	case "cue":
+		return c.classifyCueNode(nodeType, node, content)
 	}
 	return "", ""
 }
@@ -753,6 +783,125 @@ func (c *Chunker) classifyHCLNode(nodeType string, node *sitter.Node, content st
 	return "", ""
 }
 
+func (c *Chunker) classifyElixirNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "call":
+		// Check if it's a def/defp/defmodule
+		target := c.findChildByType(node, "identifier", content)
+		switch target {
+		case "def", "defp":
+			// Function definition
+			args := c.findChildNodeByType(node, "arguments")
+			if args != nil {
+				name := c.findChildByType(args, "identifier", content)
+				return types.ChunkTypeFunction, name
+			}
+		case "defmodule":
+			args := c.findChildNodeByType(node, "arguments")
+			if args != nil {
+				alias := c.findChildNodeByType(args, "alias")
+				if alias != nil {
+					name := content[alias.StartByte():alias.EndByte()]
+					return types.ChunkTypeClass, name
+				}
+			}
+		}
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyElmNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "value_declaration":
+		name := c.findChildByType(node, "lower_case_identifier", content)
+		return types.ChunkTypeFunction, name
+	case "type_declaration":
+		name := c.findChildByType(node, "upper_case_identifier", content)
+		return types.ChunkTypeClass, name
+	case "type_alias_declaration":
+		name := c.findChildByType(node, "upper_case_identifier", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyGroovyNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "method_declaration", "function_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "class_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "closure":
+		return types.ChunkTypeFunction, "closure"
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyOCamlNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "let_binding", "value_definition":
+		name := c.findChildByType(node, "value_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return types.ChunkTypeFunction, name
+	case "type_definition":
+		name := c.findChildByType(node, "type_constructor", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return types.ChunkTypeClass, name
+	case "module_definition":
+		name := c.findChildByType(node, "module_name", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyTOMLNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "table":
+		// [section.name]
+		key := c.findChildByType(node, "dotted_key", content)
+		if key == "" {
+			key = c.findChildByType(node, "bare_key", content)
+		}
+		return types.ChunkTypeBlock, key
+	case "table_array_element":
+		// [[array.section]]
+		key := c.findChildByType(node, "dotted_key", content)
+		if key == "" {
+			key = c.findChildByType(node, "bare_key", content)
+		}
+		return types.ChunkTypeBlock, key
+	case "pair":
+		key := c.findChildByType(node, "bare_key", content)
+		if key == "" {
+			key = c.findChildByType(node, "quoted_key", content)
+		}
+		return types.ChunkTypeBlock, key
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyCueNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "field":
+		// Field definition
+		label := c.findChildByType(node, "identifier", content)
+		if label == "" {
+			label = c.findChildByType(node, "string", content)
+		}
+		return types.ChunkTypeBlock, label
+	case "package_clause":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeBlock, "package " + name
+	}
+	return "", ""
+}
+
 // findChildByType finds a child node of the given type and returns its content.
 func (c *Chunker) findChildByType(node *sitter.Node, childType string, content string) string {
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -821,6 +970,8 @@ func (c *Chunker) SupportedLanguages() []string {
 		"lua", "sql", "proto", "protobuf", "markdown", "md",
 		"bash", "sh", "shell", "css", "dockerfile", "yaml", "yml",
 		"hcl", "tf", "terraform",
+		"elixir", "ex", "exs", "elm", "groovy", "gradle",
+		"ocaml", "ml", "mli", "toml", "cue",
 	}
 }
 
@@ -922,6 +1073,18 @@ func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.S
 		sym = c.yamlNodeToSymbol(nodeType, node, content)
 	case "hcl", "tf", "terraform":
 		sym = c.hclNodeToSymbol(nodeType, node, content)
+	case "elixir", "ex", "exs":
+		sym = c.elixirNodeToSymbol(nodeType, node, content)
+	case "elm":
+		sym = c.elmNodeToSymbol(nodeType, node, content)
+	case "groovy", "gradle":
+		sym = c.groovyNodeToSymbol(nodeType, node, content)
+	case "ocaml", "ml", "mli":
+		sym = c.ocamlNodeToSymbol(nodeType, node, content)
+	case "toml":
+		sym = c.tomlNodeToSymbol(nodeType, node, content)
+	case "cue":
+		sym = c.cueNodeToSymbol(nodeType, node, content)
 	}
 
 	if sym != nil {
@@ -1711,6 +1874,152 @@ func (c *Chunker) hclNodeToSymbol(nodeType string, node *sitter.Node, content st
 		name := c.findChildByType(node, "identifier", content)
 		return &types.Symbol{
 			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) elixirNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "call":
+		target := c.findChildByType(node, "identifier", content)
+		switch target {
+		case "def", "defp":
+			args := c.findChildNodeByType(node, "arguments")
+			if args != nil {
+				name := c.findChildByType(args, "identifier", content)
+				kind := types.SymbolKindFunction
+				if target == "defp" {
+					kind = types.SymbolKindFunction // private
+				}
+				return &types.Symbol{
+					Name: name,
+					Kind: kind,
+				}
+			}
+		case "defmodule":
+			args := c.findChildNodeByType(node, "arguments")
+			if args != nil {
+				alias := c.findChildNodeByType(args, "alias")
+				if alias != nil {
+					name := content[alias.StartByte():alias.EndByte()]
+					return &types.Symbol{
+						Name: name,
+						Kind: types.SymbolKindType,
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) elmNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "value_declaration":
+		name := c.findChildByType(node, "lower_case_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "type_declaration":
+		name := c.findChildByType(node, "upper_case_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "type_alias_declaration":
+		name := c.findChildByType(node, "upper_case_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) groovyNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "method_declaration", "function_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "class_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) ocamlNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "let_binding", "value_definition":
+		name := c.findChildByType(node, "value_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "type_definition":
+		name := c.findChildByType(node, "type_constructor", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "module_definition":
+		name := c.findChildByType(node, "module_name", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) tomlNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "table":
+		key := c.findChildByType(node, "dotted_key", content)
+		if key == "" {
+			key = c.findChildByType(node, "bare_key", content)
+		}
+		return &types.Symbol{
+			Name: key,
+			Kind: types.SymbolKindVariable,
+		}
+	case "table_array_element":
+		key := c.findChildByType(node, "dotted_key", content)
+		if key == "" {
+			key = c.findChildByType(node, "bare_key", content)
+		}
+		return &types.Symbol{
+			Name: key,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) cueNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "field":
+		label := c.findChildByType(node, "identifier", content)
+		if label == "" {
+			label = c.findChildByType(node, "string", content)
+		}
+		return &types.Symbol{
+			Name: label,
 			Kind: types.SymbolKindVariable,
 		}
 	}
