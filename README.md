@@ -348,6 +348,25 @@ When used with an AI assistant, these tools are available:
 | `get_status` | Get index statistics |
 | `clear_index` | Delete the index |
 
+#### index_codebase Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `force` | boolean | Force re-index all files (ignore cache) |
+| `ignore_patterns` | array | Additional patterns to exclude (e.g., `["**/test/**", "*.spec.ts"]`) |
+| `custom_extensions` | array | Additional file extensions to include (e.g., `[".vue", ".svelte"]`) |
+
+#### search_code Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | string | Search query (required) |
+| `limit` | number | Maximum results (default: 10) |
+| `mode` | string | Search mode: `vector`, `bm25`, `hybrid` (default) |
+| `no_rerank` | boolean | Disable reranking |
+| `include_context` | boolean | Include surrounding lines |
+| `languages` | array | Filter by languages (e.g., `["go", "python"]`) |
+
 ### Symbol Navigation
 
 | Tool | Description |
