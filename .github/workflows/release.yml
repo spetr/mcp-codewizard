@@ -123,7 +123,7 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CC: ${{ matrix.cc }}
         run: |
-          go build -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
+          go build -tags "fts5" -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
             -o mcp-codewizard${{ matrix.ext }} \
             ./cmd/mcp-codewizard
 
@@ -134,7 +134,7 @@ jobs:
         run: |
           export CGO_ENABLED=1
           export PATH="/mingw64/bin:$PATH"
-          go build -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
+          go build -tags "fts5" -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
             -o mcp-codewizard.exe \
             ./cmd/mcp-codewizard
 
@@ -148,7 +148,7 @@ jobs:
           GOARCH: arm64
           CC: aarch64-w64-mingw32-clang
         run: |
-          go build -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" `
+          go build -tags "fts5" -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" `
             -o mcp-codewizard.exe `
             ./cmd/mcp-codewizard
 
