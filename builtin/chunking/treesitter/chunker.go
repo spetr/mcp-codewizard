@@ -46,6 +46,7 @@ import (
 	tsjson "github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/json"
 	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/pascal"
 	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/powershell"
+	tsr "github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/r"
 	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/vbnet"
 	"github.com/spetr/mcp-codewizard/pkg/provider"
 	"github.com/spetr/mcp-codewizard/pkg/types"
@@ -164,6 +165,8 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = tsjson.GetLanguage()
 	case "powershell", "ps1", "psm1", "psd1":
 		language = powershell.GetLanguage()
+	case "r", "rscript":
+		language = tsr.GetLanguage()
 	default:
 		return nil, nil, false
 	}
@@ -338,6 +341,8 @@ func (c *Chunker) classifyNode(nodeType string, node *sitter.Node, content strin
 		return c.classifyJSONNode(nodeType, node, content)
 	case "powershell", "ps1", "psm1", "psd1":
 		return c.classifyPowerShellNode(nodeType, node, content)
+	case "r", "rscript":
+		return c.classifyRNode(nodeType, node, content)
 	}
 	return "", ""
 }
@@ -1032,6 +1037,7 @@ func (c *Chunker) SupportedLanguages() []string {
 		"pascal", "pas", "dpr", "pp", "delphi", "freepascal",
 		"vbnet", "vb", "visualbasic", "vb.net",
 		"dart", "json", "powershell", "ps1", "psm1", "psd1",
+		"r", "rscript",
 	}
 }
 
@@ -1155,6 +1161,8 @@ func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.S
 		sym = c.jsonNodeToSymbol(nodeType, node, content)
 	case "powershell", "ps1", "psm1", "psd1":
 		sym = c.powershellNodeToSymbol(nodeType, node, content)
+	case "r", "rscript":
+		sym = c.rNodeToSymbol(nodeType, node, content)
 	}
 
 	if sym != nil {
@@ -2564,6 +2572,90 @@ func (c *Chunker) powershellNodeToSymbol(nodeType string, node *sitter.Node, con
 			Name:       name,
 			Kind:       types.SymbolKindType,
 			Visibility: "public",
+		}
+	}
+	return nil
+}
+
+// R language support
+func (c *Chunker) classifyRNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_definition":
+		// R functions are typically assigned: name <- function(...) {}
+		// Check parent for assignment
+		if parent := node.Parent(); parent != nil {
+			if parent.Type() == "binary_operator" || parent.Type() == "left_assignment" || parent.Type() == "equals_assignment" {
+				// Try to get the name from left side of assignment
+				if parent.ChildCount() > 0 {
+					leftChild := parent.Child(0)
+					if leftChild.Type() == "identifier" {
+						name := content[leftChild.StartByte():leftChild.EndByte()]
+						return types.ChunkTypeFunction, name
+					}
+				}
+			}
+		}
+		return types.ChunkTypeFunction, ""
+	case "left_assignment", "equals_assignment", "right_assignment":
+		// Check if right side is a function
+		if node.ChildCount() >= 2 {
+			// For left assignment: name <- value
+			leftChild := node.Child(0)
+			rightChild := node.Child(int(node.ChildCount()) - 1)
+			if rightChild.Type() == "function_definition" && leftChild.Type() == "identifier" {
+				name := content[leftChild.StartByte():leftChild.EndByte()]
+				return types.ChunkTypeFunction, name
+			}
+		}
+	case "for_statement", "while_statement", "repeat_statement":
+		return types.ChunkTypeBlock, nodeType
+	case "if_statement":
+		return types.ChunkTypeBlock, "if"
+	}
+	return "", ""
+}
+
+func (c *Chunker) rNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_definition":
+		// R functions are typically assigned
+		if parent := node.Parent(); parent != nil {
+			if parent.Type() == "binary_operator" || parent.Type() == "left_assignment" || parent.Type() == "equals_assignment" {
+				if parent.ChildCount() > 0 {
+					leftChild := parent.Child(0)
+					if leftChild.Type() == "identifier" {
+						name := content[leftChild.StartByte():leftChild.EndByte()]
+						return &types.Symbol{
+							Name:       name,
+							Kind:       types.SymbolKindFunction,
+							Visibility: "public",
+						}
+					}
+				}
+			}
+		}
+	case "left_assignment", "equals_assignment":
+		// Check if this is a function assignment
+		if node.ChildCount() >= 2 {
+			leftChild := node.Child(0)
+			rightChild := node.Child(int(node.ChildCount()) - 1)
+			if rightChild.Type() == "function_definition" && leftChild.Type() == "identifier" {
+				name := content[leftChild.StartByte():leftChild.EndByte()]
+				return &types.Symbol{
+					Name:       name,
+					Kind:       types.SymbolKindFunction,
+					Visibility: "public",
+				}
+			}
+			// Regular variable assignment
+			if leftChild.Type() == "identifier" {
+				name := content[leftChild.StartByte():leftChild.EndByte()]
+				return &types.Symbol{
+					Name:       name,
+					Kind:       types.SymbolKindVariable,
+					Visibility: "public",
+				}
+			}
 		}
 	}
 	return nil
