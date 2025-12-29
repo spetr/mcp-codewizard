@@ -365,20 +365,45 @@ func (w *Wizard) generateRecommendations(env *DetectEnvironmentResult) *ModelRec
 		Reasoning: []string{},
 	}
 
+	// Find actual embedding and reranker models from detected Ollama models
+	embeddingModel := "nomic-embed-code" // default
+	rerankerModel := "qwen3-reranker"    // default
+	hasEmbedding := false
+	hasReranker := false
+
+	if env.Ollama.Available {
+		for _, m := range env.Ollama.Models {
+			nameLower := strings.ToLower(m.Name)
+			// Find embedding model (prefer nomic-embed-code variants)
+			if strings.Contains(nameLower, "nomic-embed") {
+				embeddingModel = m.Name
+				hasEmbedding = true
+			} else if strings.Contains(nameLower, "embed") && !hasEmbedding {
+				embeddingModel = m.Name
+				hasEmbedding = true
+			}
+			// Find reranker model
+			if strings.Contains(nameLower, "rerank") {
+				rerankerModel = m.Name
+				hasReranker = true
+			}
+		}
+	}
+
 	// Default primary recommendation
 	rec.Primary = RecommendationSet{
 		Embedding: EmbeddingRecommendation{
 			Provider:      "ollama",
-			Model:         "nomic-embed-code",
+			Model:         embeddingModel,
 			Dimensions:    768,
 			BatchSize:     32,
 			CodeOptimized: true,
 			Reason:        "Code-optimized embedding model, runs locally",
 		},
 		Reranker: RerankerRecommendation{
-			Enabled:    true,
+			Enabled:    hasReranker,
 			Provider:   "ollama",
-			Model:      "qwen3-reranker",
+			Model:      rerankerModel,
 			Candidates: 100,
 			Reason:     "Improves search accuracy by ~15%",
 		},
@@ -416,23 +441,13 @@ func (w *Wizard) generateRecommendations(env *DetectEnvironmentResult) *ModelRec
 				"WARNING: No embedding provider available. Install Ollama or set OPENAI_API_KEY")
 		}
 	} else {
-		// Check if recommended models are available
-		hasEmbedding := false
-		hasReranker := false
-		for _, m := range env.Ollama.Models {
-			if strings.Contains(m.Name, "nomic-embed") || strings.Contains(m.Name, "embed") {
-				hasEmbedding = true
-			}
-			if strings.Contains(m.Name, "rerank") {
-				hasReranker = true
-			}
-		}
-
 		if !hasEmbedding {
 			rec.Reasoning = append(rec.Reasoning,
 				"Run: ollama pull nomic-embed-code")
 		}
 		if !hasReranker {
+			rec.Primary.Reranker.Enabled = false
+			rec.Primary.Reranker.Reason = "No reranker model available"
 			rec.Reasoning = append(rec.Reasoning,
 				"Run: ollama pull qwen3-reranker (optional, for better search)")
 		}
@@ -459,7 +474,7 @@ func (w *Wizard) generateRecommendations(env *DetectEnvironmentResult) *ModelRec
 	rec.LowMemory = &RecommendationSet{
 		Embedding: EmbeddingRecommendation{
 			Provider:   "ollama",
-			Model:      "nomic-embed-code",
+			Model:      embeddingModel,
 			BatchSize:  8,
 			Reason:     "Smaller batch size for low memory",
 		},
@@ -489,9 +504,9 @@ func (w *Wizard) generateRecommendations(env *DetectEnvironmentResult) *ModelRec
 			Reason:     "Higher quality embeddings",
 		},
 		Reranker: RerankerRecommendation{
-			Enabled:    true,
+			Enabled:    hasReranker,
 			Provider:   "ollama",
-			Model:      "qwen3-reranker",
+			Model:      rerankerModel,
 			Candidates: 200,
 			Reason:     "More candidates for better accuracy",
 		},
