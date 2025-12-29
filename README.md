@@ -61,13 +61,11 @@ ollama pull nomic-embed-text
 ### 2. Install mcp-codewizard
 
 ```bash
-# From source
-git clone https://github.com/spetr/mcp-codewizard
-cd mcp-codewizard
-CGO_ENABLED=1 go build -tags "fts5" -o bin/mcp-codewizard ./cmd/mcp-codewizard
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.sh | bash
 
-# Add to PATH
-export PATH=$PATH:$(pwd)/bin
+# Windows (PowerShell)
+# irm https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.ps1 | iex
 ```
 
 ### 3. Index Your Project
@@ -95,24 +93,59 @@ Add to your Claude Code MCP configuration (`~/.claude/claude_desktop_config.json
 
 ## Installation
 
+### Quick Install (Recommended)
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.ps1 | iex
+```
+
+**Update to latest version:**
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.sh | bash -s update
+
+# Windows (PowerShell) - just run installer again
+irm https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.ps1 | iex
+```
+
+### Download Binary
+
+Pre-built binaries for all platforms are available on the [Releases](https://github.com/spetr/mcp-codewizard/releases) page:
+
+| Platform | Architecture | Download |
+|----------|--------------|----------|
+| Linux | x64 | `mcp-codewizard-vX.X.X-linux-amd64.tar.gz` |
+| Linux | ARM64 | `mcp-codewizard-vX.X.X-linux-arm64.tar.gz` |
+| macOS | x64 (Intel) | `mcp-codewizard-vX.X.X-darwin-amd64.tar.gz` |
+| macOS | ARM64 (Apple Silicon) | `mcp-codewizard-vX.X.X-darwin-arm64.tar.gz` |
+| Windows | x64 | `mcp-codewizard-vX.X.X-windows-amd64.zip` |
+| Windows | ARM64 | `mcp-codewizard-vX.X.X-windows-arm64.zip` |
+
 ### Requirements
 
-- **Go 1.21+** with CGO enabled
 - **Ollama** (recommended) or OpenAI API key
 - **~500MB disk** for embedding model
 - **~50MB per 10k LOC** for index storage
 
 ### Build from Source
 
+Requires **Go 1.21+** with CGO enabled.
+
 ```bash
 git clone https://github.com/spetr/mcp-codewizard
 cd mcp-codewizard
 
 # Build with CGO (required for sqlite-vec and TreeSitter)
-CGO_ENABLED=1 go build -tags "fts5" -o bin/mcp-codewizard ./cmd/mcp-codewizard
+CGO_ENABLED=1 go build -o mcp-codewizard ./cmd/mcp-codewizard
 
 # Verify installation
-./bin/mcp-codewizard version
+./mcp-codewizard version
 ```
 
 ### Docker (Coming Soon)
