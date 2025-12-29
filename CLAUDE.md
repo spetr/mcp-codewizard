@@ -135,8 +135,13 @@ search:
   bm25_weight: 0.3
 
 index:
-  include: ["**/*.go", "**/*.py", "**/*.js", "**/*.ts", "**/*.rs", "**/*.java", "**/*.c", "**/*.cpp"]
-  exclude: ["**/vendor/**", "**/node_modules/**", "**/.git/**"]
+  # Supports 35+ languages and formats - see full list in default config
+  include: ["**/*.go", "**/*.py", "**/*.js", "**/*.ts", "**/*.rs", "**/*.java",
+            "**/*.c", "**/*.cpp", "**/*.rb", "**/*.php", "**/*.cs", "**/*.kt",
+            "**/*.swift", "**/*.scala", "**/*.dart", "**/*.vb", "**/*.pas",
+            "**/*.ps1", "**/*.r", "**/*.html", "**/*.css", "**/*.yaml", "..."]
+  exclude: ["**/vendor/**", "**/node_modules/**", "**/.git/**", "**/dist/**",
+            "**/build/**", "**/target/**", "**/*.min.js", "**/package-lock.json", "..."]
   use_gitignore: true
 ```
 

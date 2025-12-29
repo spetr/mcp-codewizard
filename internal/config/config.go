@@ -123,13 +123,37 @@ func DefaultConfig() *Config {
 		},
 		Index: IndexConfig{
 			Include: []string{
+				// Core languages
 				"**/*.go", "**/*.py", "**/*.js", "**/*.ts",
 				"**/*.jsx", "**/*.tsx", "**/*.rs", "**/*.java",
-				"**/*.c", "**/*.cpp", "**/*.h",
+				"**/*.c", "**/*.cpp", "**/*.cc", "**/*.cxx", "**/*.h", "**/*.hpp",
+				// Additional languages
+				"**/*.rb", "**/*.php", "**/*.cs", "**/*.kt", "**/*.kts",
+				"**/*.swift", "**/*.scala", "**/*.sc",
+				"**/*.lua", "**/*.sql", "**/*.proto",
+				"**/*.sh", "**/*.bash",
+				"**/*.ex", "**/*.exs", "**/*.elm",
+				"**/*.groovy", "**/*.gradle",
+				"**/*.ml", "**/*.mli",
+				// New languages (v0.2.0)
+				"**/*.dart", "**/*.vb",
+				"**/*.pas", "**/*.pp", "**/*.dpr",
+				"**/*.ps1", "**/*.psm1", "**/*.psd1",
+				"**/*.r", "**/*.R",
+				// Config/markup
+				"**/*.html", "**/*.htm", "**/*.svelte",
+				"**/*.css", "**/*.yaml", "**/*.yml",
+				"**/*.toml", "**/*.json",
+				"**/*.tf", "**/*.hcl", "**/*.cue",
+				"**/*.md",
+				"**/Dockerfile",
 			},
 			Exclude: []string{
 				"**/vendor/**", "**/node_modules/**", "**/.git/**",
-				"**/dist/**", "**/build/**", "**/*.min.js", "**/*.generated.*",
+				"**/dist/**", "**/build/**", "**/target/**", "**/bin/**", "**/obj/**",
+				"**/*.min.js", "**/*.min.css", "**/*.generated.*",
+				"**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml",
+				"**/go.sum", "**/Cargo.lock", "**/composer.lock",
 			},
 			UseGitIgnore: true,
 		},
