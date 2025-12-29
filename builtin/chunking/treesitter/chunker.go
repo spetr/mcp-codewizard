@@ -9,23 +9,32 @@ import (
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/bash"
 	tsc "github.com/smacker/go-tree-sitter/c"
 	"github.com/smacker/go-tree-sitter/cpp"
 	"github.com/smacker/go-tree-sitter/csharp"
+	"github.com/smacker/go-tree-sitter/css"
+	"github.com/smacker/go-tree-sitter/dockerfile"
 	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/hcl"
 	"github.com/smacker/go-tree-sitter/html"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
 	"github.com/smacker/go-tree-sitter/kotlin"
+	"github.com/smacker/go-tree-sitter/lua"
+	tsmarkdown "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
 	"github.com/smacker/go-tree-sitter/php"
+	"github.com/smacker/go-tree-sitter/protobuf"
 	"github.com/smacker/go-tree-sitter/python"
 	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/smacker/go-tree-sitter/rust"
 	"github.com/smacker/go-tree-sitter/scala"
+	"github.com/smacker/go-tree-sitter/sql"
 	"github.com/smacker/go-tree-sitter/svelte"
 	"github.com/smacker/go-tree-sitter/swift"
 	"github.com/smacker/go-tree-sitter/typescript/tsx"
 	tstype "github.com/smacker/go-tree-sitter/typescript/typescript"
+	"github.com/smacker/go-tree-sitter/yaml"
 
 	"github.com/spetr/mcp-codewizard/pkg/provider"
 	"github.com/spetr/mcp-codewizard/pkg/types"
@@ -104,6 +113,24 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = html.GetLanguage()
 	case "svelte":
 		language = svelte.GetLanguage()
+	case "lua":
+		language = lua.GetLanguage()
+	case "sql":
+		language = sql.GetLanguage()
+	case "proto", "protobuf":
+		language = protobuf.GetLanguage()
+	case "markdown", "md":
+		language = tsmarkdown.GetLanguage()
+	case "bash", "sh", "shell":
+		language = bash.GetLanguage()
+	case "css":
+		language = css.GetLanguage()
+	case "dockerfile":
+		language = dockerfile.GetLanguage()
+	case "yaml", "yml":
+		language = yaml.GetLanguage()
+	case "hcl", "tf", "terraform":
+		language = hcl.GetLanguage()
 	default:
 		return nil, nil, false
 	}
@@ -238,6 +265,24 @@ func (c *Chunker) classifyNode(nodeType string, node *sitter.Node, content strin
 		return c.classifySwiftNode(nodeType, node, content)
 	case "scala", "sc":
 		return c.classifyScalaNode(nodeType, node, content)
+	case "lua":
+		return c.classifyLuaNode(nodeType, node, content)
+	case "sql":
+		return c.classifySQLNode(nodeType, node, content)
+	case "proto", "protobuf":
+		return c.classifyProtobufNode(nodeType, node, content)
+	case "markdown", "md":
+		return c.classifyMarkdownNode(nodeType, node, content)
+	case "bash", "sh", "shell":
+		return c.classifyBashNode(nodeType, node, content)
+	case "css":
+		return c.classifyCSSNode(nodeType, node, content)
+	case "dockerfile":
+		return c.classifyDockerfileNode(nodeType, node, content)
+	case "yaml", "yml":
+		return c.classifyYAMLNode(nodeType, node, content)
+	case "hcl", "tf", "terraform":
+		return c.classifyHCLNode(nodeType, node, content)
 	}
 	return "", ""
 }
@@ -475,6 +520,239 @@ func (c *Chunker) classifyScalaNode(nodeType string, node *sitter.Node, content 
 	return "", ""
 }
 
+func (c *Chunker) classifyLuaNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_declaration":
+		// Named function: function name() end
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "function_definition":
+		// Anonymous function assigned to variable
+		parent := node.Parent()
+		if parent != nil && parent.Type() == "assignment_statement" {
+			varList := c.findChildNodeByType(parent, "variable_list")
+			if varList != nil {
+				name := c.findChildByType(varList, "identifier", content)
+				return types.ChunkTypeFunction, name
+			}
+		}
+	case "local_function":
+		// Local function: local function name() end
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifySQLNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "create_function_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "create_procedure_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "create_table_statement":
+		name := c.findChildByType(node, "identifier", content)
+		if name == "" {
+			name = c.findChildByType(node, "object_reference", content)
+		}
+		return types.ChunkTypeClass, name
+	case "create_view_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "create_trigger_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "create_index_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeBlock, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyProtobufNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "message":
+		name := c.findChildByType(node, "message_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return types.ChunkTypeClass, name
+	case "enum":
+		name := c.findChildByType(node, "enum_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return types.ChunkTypeClass, name
+	case "service":
+		name := c.findChildByType(node, "service_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return types.ChunkTypeClass, name
+	case "rpc":
+		name := c.findChildByType(node, "rpc_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return types.ChunkTypeMethod, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyMarkdownNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "atx_heading", "setext_heading":
+		// Extract heading text
+		startByte := node.StartByte()
+		endByte := node.EndByte()
+		if endByte > startByte {
+			text := content[startByte:endByte]
+			// Clean up heading markers
+			text = strings.TrimLeft(text, "# ")
+			text = strings.TrimRight(text, "\n\r")
+			if len(text) > 50 {
+				text = text[:50] + "..."
+			}
+			return types.ChunkTypeBlock, text
+		}
+	case "fenced_code_block", "indented_code_block":
+		// Code blocks as separate chunks
+		infoStr := c.findChildByType(node, "info_string", content)
+		name := "code"
+		if infoStr != "" {
+			name = "code:" + infoStr
+		}
+		return types.ChunkTypeBlock, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyBashNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_definition":
+		name := c.findChildByType(node, "word", content)
+		return types.ChunkTypeFunction, name
+	case "if_statement", "for_statement", "while_statement", "case_statement":
+		return types.ChunkTypeBlock, nodeType
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyCSSNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "rule_set":
+		// CSS rule: selector { ... }
+		selector := c.findChildByType(node, "selectors", content)
+		if selector == "" {
+			selector = c.findChildByType(node, "selector_list", content)
+		}
+		if len(selector) > 50 {
+			selector = selector[:50] + "..."
+		}
+		return types.ChunkTypeBlock, selector
+	case "media_statement":
+		return types.ChunkTypeBlock, "@media"
+	case "keyframes_statement":
+		name := c.findChildByType(node, "keyframes_name", content)
+		return types.ChunkTypeBlock, "@keyframes " + name
+	case "import_statement":
+		return types.ChunkTypeBlock, "@import"
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyDockerfileNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "from_instruction":
+		image := c.findChildByType(node, "image_spec", content)
+		return types.ChunkTypeBlock, "FROM " + image
+	case "run_instruction":
+		return types.ChunkTypeBlock, "RUN"
+	case "copy_instruction":
+		return types.ChunkTypeBlock, "COPY"
+	case "add_instruction":
+		return types.ChunkTypeBlock, "ADD"
+	case "cmd_instruction":
+		return types.ChunkTypeBlock, "CMD"
+	case "entrypoint_instruction":
+		return types.ChunkTypeBlock, "ENTRYPOINT"
+	case "env_instruction":
+		return types.ChunkTypeBlock, "ENV"
+	case "expose_instruction":
+		return types.ChunkTypeBlock, "EXPOSE"
+	case "volume_instruction":
+		return types.ChunkTypeBlock, "VOLUME"
+	case "workdir_instruction":
+		return types.ChunkTypeBlock, "WORKDIR"
+	case "arg_instruction":
+		return types.ChunkTypeBlock, "ARG"
+	case "label_instruction":
+		return types.ChunkTypeBlock, "LABEL"
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyYAMLNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "block_mapping_pair":
+		// Top-level key-value pair
+		key := c.findChildByType(node, "flow_node", content)
+		if key == "" {
+			// Try to get key from the first child
+			if node.ChildCount() > 0 {
+				firstChild := node.Child(0)
+				key = content[firstChild.StartByte():firstChild.EndByte()]
+			}
+		}
+		if len(key) > 50 {
+			key = key[:50] + "..."
+		}
+		return types.ChunkTypeBlock, key
+	case "block_sequence":
+		return types.ChunkTypeBlock, "sequence"
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyHCLNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "block":
+		// HCL block: resource "type" "name" { ... }
+		// Get block type (resource, variable, output, etc.)
+		blockType := ""
+		blockName := ""
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			childType := child.Type()
+			if childType == "identifier" {
+				if blockType == "" {
+					blockType = content[child.StartByte():child.EndByte()]
+				}
+			} else if childType == "string_lit" {
+				text := content[child.StartByte():child.EndByte()]
+				text = strings.Trim(text, "\"")
+				if blockName == "" {
+					blockName = text
+				} else {
+					blockName = blockName + "." + text
+				}
+			}
+		}
+		name := blockType
+		if blockName != "" {
+			name = blockType + " " + blockName
+		}
+		return types.ChunkTypeBlock, name
+	case "attribute":
+		// Variable assignment
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeBlock, name
+	}
+	return "", ""
+}
+
 // findChildByType finds a child node of the given type and returns its content.
 func (c *Chunker) findChildByType(node *sitter.Node, childType string, content string) string {
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -540,6 +818,9 @@ func (c *Chunker) SupportedLanguages() []string {
 		"rust", "java", "c", "cpp", "h",
 		"ruby", "php", "csharp", "kotlin", "swift", "scala",
 		"html", "htm", "xhtml", "svelte",
+		"lua", "sql", "proto", "protobuf", "markdown", "md",
+		"bash", "sh", "shell", "css", "dockerfile", "yaml", "yml",
+		"hcl", "tf", "terraform",
 	}
 }
 
@@ -623,6 +904,24 @@ func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.S
 		sym = c.swiftNodeToSymbol(nodeType, node, content)
 	case "scala", "sc":
 		sym = c.scalaNodeToSymbol(nodeType, node, content)
+	case "lua":
+		sym = c.luaNodeToSymbol(nodeType, node, content)
+	case "sql":
+		sym = c.sqlNodeToSymbol(nodeType, node, content)
+	case "proto", "protobuf":
+		sym = c.protobufNodeToSymbol(nodeType, node, content)
+	case "markdown", "md":
+		sym = c.markdownNodeToSymbol(nodeType, node, content)
+	case "bash", "sh", "shell":
+		sym = c.bashNodeToSymbol(nodeType, node, content)
+	case "css":
+		sym = c.cssNodeToSymbol(nodeType, node, content)
+	case "dockerfile":
+		sym = c.dockerfileNodeToSymbol(nodeType, node, content)
+	case "yaml", "yml":
+		sym = c.yamlNodeToSymbol(nodeType, node, content)
+	case "hcl", "tf", "terraform":
+		sym = c.hclNodeToSymbol(nodeType, node, content)
 	}
 
 	if sym != nil {
@@ -1150,6 +1449,274 @@ func (c *Chunker) scalaNodeToSymbol(nodeType string, node *sitter.Node, content 
 	return nil
 }
 
+func (c *Chunker) luaNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "local_function":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "function_definition":
+		// Anonymous function assigned to variable
+		parent := node.Parent()
+		if parent != nil && parent.Type() == "assignment_statement" {
+			varList := c.findChildNodeByType(parent, "variable_list")
+			if varList != nil {
+				name := c.findChildByType(varList, "identifier", content)
+				if name != "" {
+					return &types.Symbol{
+						Name: name,
+						Kind: types.SymbolKindFunction,
+					}
+				}
+			}
+		}
+	case "variable_declaration":
+		// Local variables
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) sqlNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "create_function_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "create_procedure_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "create_table_statement":
+		name := c.findChildByType(node, "identifier", content)
+		if name == "" {
+			name = c.findChildByType(node, "object_reference", content)
+		}
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "create_view_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "create_trigger_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "create_index_statement":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) protobufNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "message":
+		name := c.findChildByType(node, "message_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "enum":
+		name := c.findChildByType(node, "enum_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "service":
+		name := c.findChildByType(node, "service_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindInterface,
+		}
+	case "rpc":
+		name := c.findChildByType(node, "rpc_name", content)
+		if name == "" {
+			name = c.findChildByType(node, "identifier", content)
+		}
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindMethod,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) markdownNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	// Markdown doesn't have traditional symbols, but we can track headings
+	switch nodeType {
+	case "atx_heading", "setext_heading":
+		startByte := node.StartByte()
+		endByte := node.EndByte()
+		if endByte > startByte {
+			text := content[startByte:endByte]
+			text = strings.TrimLeft(text, "# ")
+			text = strings.TrimRight(text, "\n\r")
+			if len(text) > 50 {
+				text = text[:50] + "..."
+			}
+			return &types.Symbol{
+				Name: text,
+				Kind: types.SymbolKindVariable, // Using Variable for headings
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) bashNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_definition":
+		name := c.findChildByType(node, "word", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) cssNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "rule_set":
+		selector := c.findChildByType(node, "selectors", content)
+		if selector == "" {
+			selector = c.findChildByType(node, "selector_list", content)
+		}
+		if len(selector) > 50 {
+			selector = selector[:50] + "..."
+		}
+		return &types.Symbol{
+			Name: selector,
+			Kind: types.SymbolKindVariable, // Using Variable for CSS rules
+		}
+	case "keyframes_statement":
+		name := c.findChildByType(node, "keyframes_name", content)
+		return &types.Symbol{
+			Name: "@keyframes " + name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) dockerfileNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "from_instruction":
+		image := c.findChildByType(node, "image_spec", content)
+		return &types.Symbol{
+			Name: "FROM " + image,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) yamlNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "block_mapping_pair":
+		key := c.findChildByType(node, "flow_node", content)
+		if key == "" && node.ChildCount() > 0 {
+			firstChild := node.Child(0)
+			key = content[firstChild.StartByte():firstChild.EndByte()]
+		}
+		if len(key) > 50 {
+			key = key[:50] + "..."
+		}
+		return &types.Symbol{
+			Name: key,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) hclNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "block":
+		blockType := ""
+		blockName := ""
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			childType := child.Type()
+			if childType == "identifier" {
+				if blockType == "" {
+					blockType = content[child.StartByte():child.EndByte()]
+				}
+			} else if childType == "string_lit" {
+				text := content[child.StartByte():child.EndByte()]
+				text = strings.Trim(text, "\"")
+				if blockName == "" {
+					blockName = text
+				} else {
+					blockName = blockName + "." + text
+				}
+			}
+		}
+		name := blockType
+		if blockName != "" {
+			name = blockType + " " + blockName
+		}
+		// Map HCL block types to symbol kinds
+		kind := types.SymbolKindVariable
+		switch blockType {
+		case "resource", "data":
+			kind = types.SymbolKindType
+		case "variable", "output", "locals":
+			kind = types.SymbolKindVariable
+		case "module":
+			kind = types.SymbolKindType
+		case "provider":
+			kind = types.SymbolKindInterface
+		}
+		return &types.Symbol{
+			Name: name,
+			Kind: kind,
+		}
+	case "attribute":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
 // extractDocComment extracts documentation comment preceding a node.
 func (c *Chunker) extractDocComment(node *sitter.Node, content string) string {
 	// Look for comment nodes before this node
@@ -1260,6 +1827,13 @@ func (c *Chunker) extractRefsFromNode(node *sitter.Node, file *types.SourceFile,
 		c.extractSwiftRefs(node, file, content, localSymbols, refs, currentFunc)
 	case "scala", "sc":
 		c.extractScalaRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "lua":
+		c.extractLuaRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "sql":
+		c.extractSQLRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "proto", "protobuf":
+		c.extractProtobufRefs(node, file, content, localSymbols, refs, currentFunc)
+	// markdown doesn't have meaningful references
 	}
 
 	// Recurse into children
@@ -2151,6 +2725,162 @@ func (c *Chunker) extractScalaRefs(node *sitter.Node, file *types.SourceFile, co
 		if parent != nil && parent.Type() != "class_definition" && parent.Type() != "trait_definition" && parent.Type() != "object_definition" {
 			typeName := content[node.StartByte():node.EndByte()]
 			if typeName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+					FromSymbol: currentFunc,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractLuaRefs extracts references from Lua code.
+func (c *Chunker) extractLuaRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "function_call":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "identifier")
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "method_index_expression":
+		// Method calls like obj:method()
+		methodNode := c.findChildNodeByType(node, "identifier")
+		if methodNode != nil {
+			calledFunc := content[methodNode.StartByte():methodNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractSQLRefs extracts references from SQL code.
+func (c *Chunker) extractSQLRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "table_reference", "object_reference":
+		// Table references in SELECT, INSERT, UPDATE, DELETE
+		name := content[node.StartByte():node.EndByte()]
+		if name != "" {
+			fromSym := currentFunc
+			if fromSym == "" {
+				fromSym = file.Path
+			}
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, name),
+				FromSymbol: fromSym,
+				ToSymbol:   name,
+				Kind:       types.RefKindTypeUse,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: !localSymbols[name],
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "function_call":
+		// Function calls in SQL
+		funcNode := c.findChildNodeByType(node, "identifier")
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractProtobufRefs extracts references from Protobuf code.
+func (c *Chunker) extractProtobufRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "import":
+		// Import statements
+		pathNode := c.findChildNodeByType(node, "string")
+		if pathNode != nil {
+			importPath := content[pathNode.StartByte():pathNode.EndByte()]
+			importPath = strings.Trim(importPath, "\"")
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, importPath),
+				FromSymbol: file.Path,
+				ToSymbol:   importPath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "type":
+		// Type references in field definitions
+		typeName := content[node.StartByte():node.EndByte()]
+		if typeName != "" && currentFunc != "" {
+			// Skip built-in types
+			builtinTypes := map[string]bool{
+				"int32": true, "int64": true, "uint32": true, "uint64": true,
+				"sint32": true, "sint64": true, "fixed32": true, "fixed64": true,
+				"sfixed32": true, "sfixed64": true, "bool": true, "string": true,
+				"bytes": true, "float": true, "double": true,
+			}
+			if !builtinTypes[typeName] {
 				ref := &types.Reference{
 					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
 					FromSymbol: currentFunc,

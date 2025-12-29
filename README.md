@@ -43,7 +43,7 @@ mcp-codewizard solves all of this by creating a local semantic index of your cod
 - **Plugin Architecture** - Swap embedding providers, chunking strategies, vector stores
 - **Incremental Indexing** - Only re-index changed files
 - **Parallel Processing** - Fast indexing using all CPU cores
-- **TreeSitter Parsing** - Language-aware code chunking for 18 languages
+- **TreeSitter Parsing** - Language-aware code chunking for 27 languages
 - **Local-First** - Everything runs on your machine with Ollama
 
 ## Quick Start
@@ -200,6 +200,17 @@ index:
     - "**/*.kt"
     - "**/*.swift"
     - "**/*.scala"
+    - "**/*.lua"
+    - "**/*.sql"
+    - "**/*.proto"
+    - "**/*.md"
+    - "**/*.sh"
+    - "**/*.css"
+    - "**/Dockerfile"
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/*.tf"
+    - "**/*.hcl"
     - "**/*.html"
     - "**/*.svelte"
   exclude:
@@ -438,7 +449,7 @@ provider.RegisterEmbedding("my-provider", func(cfg provider.EmbeddingConfig) (pr
 
 ## Supported Languages
 
-TreeSitter chunking provides full AST-aware parsing for 18 languages:
+TreeSitter chunking provides full AST-aware parsing for 27 languages:
 
 | Language | Extensions | Symbol Extraction |
 |----------|------------|-------------------|
@@ -456,6 +467,15 @@ TreeSitter chunking provides full AST-aware parsing for 18 languages:
 | Kotlin | `.kt`, `.kts` | Functions, classes, objects, interfaces |
 | Swift | `.swift` | Functions, classes, structs, protocols, extensions |
 | Scala | `.scala`, `.sc` | Functions, classes, objects, traits |
+| Lua | `.lua` | Functions, local functions, variables |
+| SQL | `.sql` | Tables, views, functions, procedures, triggers |
+| Protobuf | `.proto` | Messages, enums, services, RPCs |
+| Markdown | `.md` | Headings, code blocks |
+| Bash/Shell | `.sh`, `.bash` | Functions |
+| CSS | `.css` | Rules, keyframes, media queries |
+| Dockerfile | `Dockerfile` | FROM, RUN, COPY instructions |
+| YAML | `.yaml`, `.yml` | Top-level keys |
+| HCL/Terraform | `.tf`, `.hcl` | Resources, variables, outputs, modules |
 | **HTML** | `.html`, `.htm`, `.xhtml` | Embedded JavaScript extraction |
 | **Svelte** | `.svelte` | Embedded JavaScript + expressions |
 
