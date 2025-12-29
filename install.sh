@@ -55,15 +55,32 @@ get_latest_version() {
 
 # Download and install
 install() {
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║              mcp-codewizard Installer                        ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    info "Detecting system..."
     local os=$(detect_os)
     local arch=$(detect_arch)
+    echo "  → Operating System: ${os}"
+    echo "  → Architecture: ${arch}"
+
+    info "Fetching latest version from GitHub..."
     local version="${VERSION:-$(get_latest_version)}"
 
     if [ -z "$version" ]; then
         error "Failed to determine version. Set VERSION env var or check network."
     fi
+    echo "  → Version: ${version}"
+    echo ""
 
-    info "Installing ${BINARY_NAME} ${version} for ${os}/${arch}..."
+    # Check if already installed
+    if command -v "$BINARY_NAME" &> /dev/null; then
+        local current=$("$BINARY_NAME" version 2>/dev/null | head -1 | awk '{print $2}' || echo "unknown")
+        info "Current installation detected: ${current}"
+    fi
 
     # Determine file extension
     local ext="tar.gz"
@@ -75,20 +92,24 @@ install() {
     local url="https://github.com/${REPO}/releases/download/${version}/${filename}"
 
     # Create temp directory
+    info "Creating temporary directory..."
     local tmpdir=$(mktemp -d)
     trap "rm -rf $tmpdir" EXIT
+    echo "  → Temp: ${tmpdir}"
 
-    info "Downloading ${url}..."
-    curl -fsSL "$url" -o "${tmpdir}/${filename}" || error "Download failed"
+    info "Downloading from GitHub..."
+    echo "  → URL: ${url}"
+    curl -fsSL --progress-bar "$url" -o "${tmpdir}/${filename}" || error "Download failed"
+    echo "  → Downloaded: $(du -h "${tmpdir}/${filename}" | cut -f1)"
 
-    # Extract
-    info "Extracting..."
+    info "Extracting archive..."
     cd "$tmpdir"
     if [ "$ext" = "tar.gz" ]; then
         tar -xzf "$filename"
     else
         unzip -q "$filename"
     fi
+    echo "  → Extracted successfully"
 
     # Install binary
     local binary="${BINARY_NAME}"
@@ -100,42 +121,77 @@ install() {
         error "Binary not found in archive"
     fi
 
+    info "Installing to ${INSTALL_DIR}..."
     # Check if we need sudo
     if [ -w "$INSTALL_DIR" ]; then
         mv "$binary" "${INSTALL_DIR}/${binary}"
         chmod +x "${INSTALL_DIR}/${binary}"
+        echo "  → Installed (user permissions)"
     else
-        info "Requesting sudo for installation to ${INSTALL_DIR}..."
+        echo "  → Requesting sudo access..."
         sudo mv "$binary" "${INSTALL_DIR}/${binary}"
         sudo chmod +x "${INSTALL_DIR}/${binary}"
+        echo "  → Installed (with sudo)"
     fi
 
+    echo ""
     # Verify installation
     if command -v "$BINARY_NAME" &> /dev/null; then
+        info "Verifying installation..."
         local installed_version=$("$BINARY_NAME" version 2>/dev/null || echo "unknown")
-        info "Successfully installed ${BINARY_NAME} ${installed_version} to ${INSTALL_DIR}"
+        echo ""
+        echo "╔══════════════════════════════════════════════════════════════╗"
+        echo "║  ✓ Installation complete!                                    ║"
+        echo "╚══════════════════════════════════════════════════════════════╝"
+        echo ""
+        "$BINARY_NAME" version
+        echo ""
+        info "Get started with: ${BINARY_NAME} init"
     else
-        warn "Installed to ${INSTALL_DIR}/${binary}"
+        warn "Binary installed to ${INSTALL_DIR}/${binary}"
         warn "Make sure ${INSTALL_DIR} is in your PATH"
+        echo ""
+        echo "Add to PATH with:"
+        echo "  export PATH=\"\$PATH:${INSTALL_DIR}\""
     fi
+    echo ""
 }
 
 # Check for updates
 check_update() {
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║              mcp-codewizard Updater                          ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    info "Checking current installation..."
     local current=""
     if command -v "$BINARY_NAME" &> /dev/null; then
-        current=$("$BINARY_NAME" version 2>/dev/null | head -1 || echo "")
+        current=$("$BINARY_NAME" version 2>/dev/null | head -1 | awk '{print $2}' || echo "")
+        echo "  → Installed version: ${current:-unknown}"
+    else
+        echo "  → Not installed"
     fi
 
+    info "Fetching latest version from GitHub..."
     local latest=$(get_latest_version)
+    echo "  → Latest version: ${latest}"
+    echo ""
 
     if [ -z "$current" ]; then
         info "mcp-codewizard is not installed. Installing..."
         install
-    elif [ "$current" = "$latest" ] || [ "v$current" = "$latest" ]; then
-        info "Already at latest version: ${latest}"
+    elif [ "$current" = "$latest" ] || [ "v$current" = "$latest" ] || [ "$current" = "${latest#v}" ]; then
+        echo "╔══════════════════════════════════════════════════════════════╗"
+        echo "║  ✓ Already at latest version!                               ║"
+        echo "╚══════════════════════════════════════════════════════════════╝"
+        echo ""
+        "$BINARY_NAME" version
+        echo ""
     else
-        info "Update available: ${current} -> ${latest}"
+        info "Update available: ${current} → ${latest}"
+        echo ""
         install
     fi
 }
