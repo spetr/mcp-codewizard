@@ -2618,7 +2618,7 @@ func runClear(force bool) {
 	if !force {
 		fmt.Print("This will delete all indexed data. Continue? [y/N] ")
 		var response string
-		fmt.Scanln(&response)
+		_, _ = fmt.Scanln(&response)
 		if response != "y" && response != "Y" {
 			fmt.Println("Aborted.")
 			return
