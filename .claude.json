@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mcp-codewizard": {
+      "args": [
+        "serve",
+        "--stdio"
+      ],
+      "command": "/usr/local/bin/mcp-codewizard"
+    }
+  }
+}

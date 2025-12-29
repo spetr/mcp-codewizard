@@ -109,6 +109,13 @@ Categories: `decision`, `context`, `fact`, `note`, `error`, `review`
 Priorities: `urgent`, `high`, `medium`, `low`
 Statuses: `pending`, `in_progress`, `completed`, `cancelled`, `blocked`
 
+### GitHub Integration
+| Tool | Description |
+|------|-------------|
+| `github_sync` | Sync GitHub issues/PRs to memory |
+
+Requires: `gh` CLI installed and authenticated
+
 ## Configuration
 
 ```yaml
@@ -147,6 +154,7 @@ index:
 
 ## CLI Commands
 
+### Basic Commands
 ```bash
 mcp-codewizard index [path]           # index project
 mcp-codewizard index --force          # reindex all
@@ -155,13 +163,54 @@ mcp-codewizard status                 # index status
 mcp-codewizard serve --stdio          # MCP server for Claude Code
 mcp-codewizard watch [path]           # watch mode
 mcp-codewizard config validate        # validate config
+mcp-codewizard chunk <chunk-id>       # get chunk with context
+mcp-codewizard clear                  # clear entire index
+mcp-codewizard call <tool> [args]     # invoke any MCP tool directly
+```
 
-# Register with AI CLI tools
+### Register with AI CLI Tools
+```bash
 mcp-codewizard register claude-code   # register with Claude Code
 mcp-codewizard register gemini        # register with Gemini CLI
 mcp-codewizard register codex         # register with Codex CLI (OpenAI)
 mcp-codewizard register all           # register with all tools
 mcp-codewizard register claude-code -g  # global (user-level) registration
+```
+
+### Analysis Commands
+```bash
+mcp-codewizard analysis callers <symbol>      # who calls this symbol
+mcp-codewizard analysis callees <symbol>      # what this symbol calls
+mcp-codewizard analysis symbols               # list symbols (--kind, --min-lines, --sort)
+mcp-codewizard analysis dead-code             # find unused code (--type: functions|types|all)
+mcp-codewizard analysis refactoring           # suggest refactoring opportunities
+mcp-codewizard analysis complexity [file]     # complexity metrics
+mcp-codewizard analysis entry-points          # find entry points (--type, --limit)
+mcp-codewizard analysis imports [file]        # import/dependency graph
+```
+
+### Git History Commands
+```bash
+mcp-codewizard git index                      # index git history
+mcp-codewizard git status                     # git history index status
+mcp-codewizard git search "query"             # semantic search in history
+mcp-codewizard git blame <file> [line]        # enhanced blame with context
+mcp-codewizard git evolution <symbol>         # symbol evolution over time
+mcp-codewizard git regression "bug desc"      # find regression commit
+mcp-codewizard git commit <hash>              # commit details and context
+mcp-codewizard git contributors [file]        # expert/contributor insights
+mcp-codewizard git history <chunk-id>         # chunk change history
+```
+
+### Todo Commands
+```bash
+mcp-codewizard todo list                      # list todos (--status, --priority)
+mcp-codewizard todo add "title"               # create todo (--priority, --file)
+mcp-codewizard todo search "query"            # semantic search todos
+mcp-codewizard todo update <id>               # update todo (--status, --priority)
+mcp-codewizard todo complete <id>             # mark as completed
+mcp-codewizard todo delete <id>               # delete todo
+mcp-codewizard todo stats                     # todo statistics
 ```
 
 ## Ollama Setup
