@@ -96,6 +96,13 @@ jobs:
           $llvmPath = (Get-ChildItem C:\llvm-mingw-*).FullName
           echo "$llvmPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+          # Download SQLite3 amalgamation for headers
+          $sqliteUrl = "https://www.sqlite.org/2024/sqlite-amalgamation-3470200.zip"
+          Invoke-WebRequest -Uri $sqliteUrl -OutFile sqlite.zip
+          Expand-Archive sqlite.zip -DestinationPath C:\
+          $sqlitePath = (Get-ChildItem C:\sqlite-amalgamation-*).FullName
+          echo "CGO_CFLAGS=-I$sqlitePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Get version
         id: version
         shell: bash
