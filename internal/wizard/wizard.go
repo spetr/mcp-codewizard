@@ -369,16 +369,19 @@ func (w *Wizard) generateRecommendations(env *DetectEnvironmentResult) *ModelRec
 	embeddingModel := "nomic-embed-code" // default
 	rerankerModel := "qwen3-reranker"    // default
 	hasEmbedding := false
+	hasCodeEmbedding := false // prefer code-specific models
 	hasReranker := false
 
 	if env.Ollama.Available {
 		for _, m := range env.Ollama.Models {
 			nameLower := strings.ToLower(m.Name)
-			// Find embedding model (prefer nomic-embed-code variants)
-			if strings.Contains(nameLower, "nomic-embed") {
+			// Find embedding model (prefer nomic-embed-code over nomic-embed-text)
+			if strings.Contains(nameLower, "nomic-embed-code") || strings.Contains(nameLower, "embed-code") {
 				embeddingModel = m.Name
 				hasEmbedding = true
-			} else if strings.Contains(nameLower, "embed") && !hasEmbedding {
+				hasCodeEmbedding = true
+			} else if strings.Contains(nameLower, "embed") && !hasCodeEmbedding {
+				// Only use generic embed model if no code-specific model found
 				embeddingModel = m.Name
 				hasEmbedding = true
 			}

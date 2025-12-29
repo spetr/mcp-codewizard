@@ -16,10 +16,11 @@ import (
 
 // Default values
 const (
-	DefaultModel      = "nomic-embed-code"
-	DefaultEndpoint   = "http://localhost:11434"
-	DefaultBatchSize  = 32
-	DefaultDimensions = 768 // nomic-embed-code default
+	DefaultModel       = "nomic-embed-code"
+	DefaultEndpoint    = "http://localhost:11434"
+	DefaultBatchSize   = 32
+	DefaultDimensions  = 768  // nomic-embed-code default
+	DefaultMaxTokens   = 8000 // Safe limit for most embedding models (chars, roughly ~2000 tokens)
 )
 
 // Config contains Ollama provider configuration.
@@ -102,6 +103,11 @@ func (p *Provider) Embed(ctx context.Context, texts []string) ([][]float32, erro
 
 // embedSingle embeds a single text.
 func (p *Provider) embedSingle(ctx context.Context, text string) ([]float32, error) {
+	// Truncate text if too long to avoid context length errors
+	if len(text) > DefaultMaxTokens {
+		text = text[:DefaultMaxTokens]
+	}
+
 	// Ollama embed API request
 	reqBody := map[string]any{
 		"model":  p.config.Model,
