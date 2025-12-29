@@ -43,6 +43,7 @@ import (
 	"github.com/smacker/go-tree-sitter/yaml"
 
 	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/pascal"
+	"github.com/spetr/mcp-codewizard/builtin/chunking/treesitter/vbnet"
 	"github.com/spetr/mcp-codewizard/pkg/provider"
 	"github.com/spetr/mcp-codewizard/pkg/types"
 )
@@ -152,6 +153,8 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = cue.GetLanguage()
 	case "pascal", "pas", "dpr", "pp", "delphi", "freepascal":
 		language = pascal.GetLanguage()
+	case "vbnet", "vb", "visualbasic", "vb.net":
+		language = vbnet.GetLanguage()
 	default:
 		return nil, nil, false
 	}
@@ -318,6 +321,8 @@ func (c *Chunker) classifyNode(nodeType string, node *sitter.Node, content strin
 		return c.classifyCueNode(nodeType, node, content)
 	case "pascal", "pas", "dpr", "pp", "delphi", "freepascal":
 		return c.classifyPascalNode(nodeType, node, content)
+	case "vbnet", "vb", "visualbasic", "vb.net":
+		return c.classifyVBNetNode(nodeType, node, content)
 	}
 	return "", ""
 }
@@ -1010,6 +1015,7 @@ func (c *Chunker) SupportedLanguages() []string {
 		"elixir", "ex", "exs", "elm", "groovy", "gradle",
 		"ocaml", "ml", "mli", "toml", "cue",
 		"pascal", "pas", "dpr", "pp", "delphi", "freepascal",
+		"vbnet", "vb", "visualbasic", "vb.net",
 	}
 }
 
@@ -1125,6 +1131,8 @@ func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.S
 		sym = c.cueNodeToSymbol(nodeType, node, content)
 	case "pascal", "pas", "dpr", "pp", "delphi", "freepascal":
 		sym = c.pascalNodeToSymbol(nodeType, node, content)
+	case "vbnet", "vb", "visualbasic", "vb.net":
+		sym = c.vbnetNodeToSymbol(nodeType, node, content)
 	}
 
 	if sym != nil {
@@ -2137,6 +2145,172 @@ func (c *Chunker) pascalNodeToSymbol(nodeType string, node *sitter.Node, content
 		}
 	}
 	return nil
+}
+
+func (c *Chunker) classifyVBNetNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "class_block":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeClass, name
+	case "module_block":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeClass, name
+	case "structure_block":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeClass, name
+	case "interface_block":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeClass, name
+	case "enum_block":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeBlock, name
+	case "method_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeFunction, name
+	case "constructor_declaration":
+		return types.ChunkTypeFunction, "New"
+	case "property_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeFunction, name
+	case "event_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeBlock, name
+	case "delegate_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeBlock, name
+	case "namespace_block":
+		name := c.findVBNetIdentifier(node, content)
+		return types.ChunkTypeBlock, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) findVBNetIdentifier(node *sitter.Node, content string) string {
+	// Try to find identifier in various child positions
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		childType := child.Type()
+		if childType == "identifier" || childType == "qualified_identifier" {
+			return content[child.StartByte():child.EndByte()]
+		}
+		// Also check in declaration headers
+		if strings.Contains(childType, "declaration") || strings.Contains(childType, "header") {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				grandchild := child.Child(j)
+				if grandchild.Type() == "identifier" {
+					return content[grandchild.StartByte():grandchild.EndByte()]
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func (c *Chunker) vbnetNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "class_block":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "module_block":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: "public",
+		}
+	case "structure_block":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "interface_block":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindInterface,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "enum_block":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "method_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindFunction,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "constructor_declaration":
+		return &types.Symbol{
+			Name:       "New",
+			Kind:       types.SymbolKindFunction,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "property_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindVariable,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "event_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindVariable,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "delegate_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		return &types.Symbol{
+			Name:       name,
+			Kind:       types.SymbolKindType,
+			Visibility: c.getVBNetVisibility(node, content),
+		}
+	case "field_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		if name != "" {
+			return &types.Symbol{
+				Name:       name,
+				Kind:       types.SymbolKindVariable,
+				Visibility: c.getVBNetVisibility(node, content),
+			}
+		}
+	case "const_declaration":
+		name := c.findVBNetIdentifier(node, content)
+		if name != "" {
+			return &types.Symbol{
+				Name:       name,
+				Kind:       types.SymbolKindConstant,
+				Visibility: c.getVBNetVisibility(node, content),
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) getVBNetVisibility(node *sitter.Node, content string) string {
+	nodeContent := strings.ToLower(content[node.StartByte():node.EndByte()])
+	if strings.Contains(nodeContent, "private ") {
+		return "private"
+	}
+	if strings.Contains(nodeContent, "protected ") {
+		return "protected"
+	}
+	if strings.Contains(nodeContent, "friend ") {
+		return "internal"
+	}
+	return "public"
 }
 
 // extractDocComment extracts documentation comment preceding a node.
