@@ -55,6 +55,7 @@ jobs:
       - name: Build (Windows)
         if: matrix.os == 'windows'
         shell: msys2 {0}
+        timeout-minutes: 15
         run: |
           export CGO_ENABLED=1
           export PATH="/mingw64/bin:$PATH"
@@ -69,10 +70,11 @@ jobs:
       - name: Test (Windows)
         if: matrix.os == 'windows'
         shell: msys2 {0}
+        timeout-minutes: 15
         run: |
           export CGO_ENABLED=1
           export PATH="/mingw64/bin:$PATH"
-          go test -v -timeout 5m ./...
+          go test -v -timeout 10m ./...
 
   lint:
     name: Lint

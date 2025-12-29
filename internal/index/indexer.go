@@ -611,7 +611,7 @@ func parseSize(s string) int64 {
 	}
 
 	var value int64
-	fmt.Sscanf(s, "%d", &value)
+	_, _ = fmt.Sscanf(s, "%d", &value)
 
 	return value * multiplier
 }
