@@ -11,11 +11,17 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	tsc "github.com/smacker/go-tree-sitter/c"
 	"github.com/smacker/go-tree-sitter/cpp"
+	"github.com/smacker/go-tree-sitter/csharp"
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
+	"github.com/smacker/go-tree-sitter/kotlin"
+	"github.com/smacker/go-tree-sitter/php"
 	"github.com/smacker/go-tree-sitter/python"
+	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/smacker/go-tree-sitter/rust"
+	"github.com/smacker/go-tree-sitter/scala"
+	"github.com/smacker/go-tree-sitter/swift"
 	"github.com/smacker/go-tree-sitter/typescript/tsx"
 	tstype "github.com/smacker/go-tree-sitter/typescript/typescript"
 
@@ -80,6 +86,18 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = tsc.GetLanguage()
 	case "cpp", "hpp", "cc", "cxx":
 		language = cpp.GetLanguage()
+	case "ruby", "rb":
+		language = ruby.GetLanguage()
+	case "php":
+		language = php.GetLanguage()
+	case "csharp", "cs":
+		language = csharp.GetLanguage()
+	case "kotlin", "kt", "kts":
+		language = kotlin.GetLanguage()
+	case "swift":
+		language = swift.GetLanguage()
+	case "scala", "sc":
+		language = scala.GetLanguage()
 	default:
 		return nil, nil, false
 	}
@@ -189,6 +207,18 @@ func (c *Chunker) classifyNode(nodeType string, node *sitter.Node, content strin
 		return c.classifyJavaNode(nodeType, node, content)
 	case "c", "cpp", "h", "hpp":
 		return c.classifyCNode(nodeType, node, content)
+	case "ruby", "rb":
+		return c.classifyRubyNode(nodeType, node, content)
+	case "php":
+		return c.classifyPHPNode(nodeType, node, content)
+	case "csharp", "cs":
+		return c.classifyCSharpNode(nodeType, node, content)
+	case "kotlin", "kt", "kts":
+		return c.classifyKotlinNode(nodeType, node, content)
+	case "swift":
+		return c.classifySwiftNode(nodeType, node, content)
+	case "scala", "sc":
+		return c.classifyScalaNode(nodeType, node, content)
 	}
 	return "", ""
 }
@@ -303,6 +333,129 @@ func (c *Chunker) classifyCNode(nodeType string, node *sitter.Node, content stri
 	return "", ""
 }
 
+func (c *Chunker) classifyRubyNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "method":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "singleton_method":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeMethod, name
+	case "class":
+		name := c.findChildByType(node, "constant", content)
+		return types.ChunkTypeClass, name
+	case "module":
+		name := c.findChildByType(node, "constant", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyPHPNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_definition":
+		name := c.findChildByType(node, "name", content)
+		return types.ChunkTypeFunction, name
+	case "method_declaration":
+		name := c.findChildByType(node, "name", content)
+		return types.ChunkTypeMethod, name
+	case "class_declaration":
+		name := c.findChildByType(node, "name", content)
+		return types.ChunkTypeClass, name
+	case "interface_declaration":
+		name := c.findChildByType(node, "name", content)
+		return types.ChunkTypeClass, name
+	case "trait_declaration":
+		name := c.findChildByType(node, "name", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyCSharpNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "method_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeMethod, name
+	case "class_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "interface_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "struct_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "enum_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "record_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyKotlinNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_declaration":
+		name := c.findChildByType(node, "simple_identifier", content)
+		return types.ChunkTypeFunction, name
+	case "class_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "object_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "interface_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifySwiftNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_declaration":
+		name := c.findChildByType(node, "simple_identifier", content)
+		return types.ChunkTypeFunction, name
+	case "class_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "struct_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "enum_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "protocol_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "extension_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, "extension " + name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyScalaNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "class_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "object_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "trait_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
 // findChildByType finds a child node of the given type and returns its content.
 func (c *Chunker) findChildByType(node *sitter.Node, childType string, content string) string {
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -351,6 +504,7 @@ func (c *Chunker) SupportedLanguages() []string {
 	return []string{
 		"go", "python", "javascript", "typescript", "jsx", "tsx",
 		"rust", "java", "c", "cpp", "h",
+		"ruby", "php", "csharp", "kotlin", "swift", "scala",
 	}
 }
 
@@ -417,6 +571,18 @@ func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.S
 		sym = c.javaNodeToSymbol(nodeType, node, content)
 	case "c", "cpp", "h", "hpp":
 		sym = c.cNodeToSymbol(nodeType, node, content)
+	case "ruby", "rb":
+		sym = c.rubyNodeToSymbol(nodeType, node, content)
+	case "php":
+		sym = c.phpNodeToSymbol(nodeType, node, content)
+	case "csharp", "cs":
+		sym = c.csharpNodeToSymbol(nodeType, node, content)
+	case "kotlin", "kt", "kts":
+		sym = c.kotlinNodeToSymbol(nodeType, node, content)
+	case "swift":
+		sym = c.swiftNodeToSymbol(nodeType, node, content)
+	case "scala", "sc":
+		sym = c.scalaNodeToSymbol(nodeType, node, content)
 	}
 
 	if sym != nil {
@@ -675,6 +841,274 @@ func (c *Chunker) cNodeToSymbol(nodeType string, node *sitter.Node, content stri
 	return nil
 }
 
+func (c *Chunker) rubyNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "method":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "singleton_method":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindMethod,
+		}
+	case "class":
+		name := c.findChildByType(node, "constant", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "module":
+		name := c.findChildByType(node, "constant", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "constant":
+		// Top-level constant assignment
+		parent := node.Parent()
+		if parent != nil && parent.Type() == "assignment" {
+			name := content[node.StartByte():node.EndByte()]
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindConstant,
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) phpNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_definition":
+		name := c.findChildByType(node, "name", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "method_declaration":
+		name := c.findChildByType(node, "name", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindMethod,
+		}
+	case "class_declaration":
+		name := c.findChildByType(node, "name", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "interface_declaration":
+		name := c.findChildByType(node, "name", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindInterface,
+		}
+	case "trait_declaration":
+		name := c.findChildByType(node, "name", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "const_declaration":
+		elem := c.findChildNodeByType(node, "const_element")
+		if elem != nil {
+			name := c.findChildByType(elem, "name", content)
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindConstant,
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) csharpNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "method_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindMethod,
+		}
+	case "class_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "interface_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindInterface,
+		}
+	case "struct_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "enum_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "record_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "field_declaration":
+		declarator := c.findChildNodeByType(node, "variable_declarator")
+		if declarator != nil {
+			name := c.findChildByType(declarator, "identifier", content)
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindVariable,
+			}
+		}
+	case "property_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) kotlinNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_declaration":
+		name := c.findChildByType(node, "simple_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "class_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "object_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "interface_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindInterface,
+		}
+	case "property_declaration":
+		name := c.findChildByType(node, "simple_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) swiftNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_declaration":
+		name := c.findChildByType(node, "simple_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "class_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "struct_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "enum_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "protocol_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindInterface,
+		}
+	case "extension_declaration":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: "extension " + name,
+			Kind: types.SymbolKindType,
+		}
+	case "property_declaration":
+		name := c.findChildByType(node, "simple_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) scalaNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "class_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "object_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "trait_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindInterface,
+		}
+	case "val_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindConstant,
+		}
+	case "var_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
 // extractDocComment extracts documentation comment preceding a node.
 func (c *Chunker) extractDocComment(node *sitter.Node, content string) string {
 	// Look for comment nodes before this node
@@ -768,6 +1202,18 @@ func (c *Chunker) extractRefsFromNode(node *sitter.Node, file *types.SourceFile,
 		c.extractJavaRefs(node, file, content, localSymbols, refs, currentFunc)
 	case "c", "cpp", "h", "hpp":
 		c.extractCRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "ruby", "rb":
+		c.extractRubyRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "php":
+		c.extractPHPRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "csharp", "cs":
+		c.extractCSharpRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "kotlin", "kt", "kts":
+		c.extractKotlinRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "swift":
+		c.extractSwiftRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "scala", "sc":
+		c.extractScalaRefs(node, file, content, localSymbols, refs, currentFunc)
 	}
 
 	// Recurse into children
@@ -1186,6 +1632,477 @@ func (c *Chunker) extractCRefs(node *sitter.Node, file *types.SourceFile, conten
 		// Type usage
 		parent := node.Parent()
 		if parent != nil && parent.Type() != "struct_specifier" && parent.Type() != "class_specifier" {
+			typeName := content[node.StartByte():node.EndByte()]
+			if typeName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+					FromSymbol: currentFunc,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractRubyRefs extracts references from Ruby code.
+func (c *Chunker) extractRubyRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call":
+		// Method calls
+		methodNode := c.findChildNodeByType(node, "identifier")
+		if methodNode != nil {
+			calledFunc := content[methodNode.StartByte():methodNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "require", "require_relative":
+		// Require statements
+		argNode := c.findChildNodeByType(node, "argument_list")
+		if argNode != nil {
+			strNode := c.findChildNodeByType(argNode, "string")
+			if strNode != nil {
+				requirePath := content[strNode.StartByte():strNode.EndByte()]
+				requirePath = strings.Trim(requirePath, "\"'")
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, requirePath),
+					FromSymbol: file.Path,
+					ToSymbol:   requirePath,
+					Kind:       types.RefKindImport,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: true,
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "constant":
+		// Class/module references
+		parent := node.Parent()
+		if parent != nil && parent.Type() != "class" && parent.Type() != "module" {
+			constName := content[node.StartByte():node.EndByte()]
+			if constName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, constName),
+					FromSymbol: currentFunc,
+					ToSymbol:   constName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[constName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractPHPRefs extracts references from PHP code.
+func (c *Chunker) extractPHPRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "function_call_expression":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "name")
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "member_call_expression", "scoped_call_expression":
+		// Method calls
+		nameNode := c.findChildNodeByType(node, "name")
+		if nameNode != nil {
+			calledFunc := content[nameNode.StartByte():nameNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "namespace_use_declaration":
+		// Use statements
+		clauseNode := c.findChildNodeByType(node, "namespace_use_clause")
+		if clauseNode != nil {
+			nameNode := c.findChildNodeByType(clauseNode, "qualified_name")
+			if nameNode != nil {
+				usePath := content[nameNode.StartByte():nameNode.EndByte()]
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, usePath),
+					FromSymbol: file.Path,
+					ToSymbol:   usePath,
+					Kind:       types.RefKindImport,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: true,
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "object_creation_expression":
+		// new ClassName()
+		nameNode := c.findChildNodeByType(node, "name")
+		if nameNode != nil {
+			typeName := content[nameNode.StartByte():nameNode.EndByte()]
+			if typeName != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, typeName),
+					FromSymbol: fromSym,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractCSharpRefs extracts references from C# code.
+func (c *Chunker) extractCSharpRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "invocation_expression":
+		// Method calls
+		nameNode := c.findChildNodeByType(node, "identifier")
+		if nameNode == nil {
+			memberNode := c.findChildNodeByType(node, "member_access_expression")
+			if memberNode != nil {
+				nameNode = c.findChildNodeByType(memberNode, "identifier")
+			}
+		}
+		if nameNode != nil {
+			calledFunc := content[nameNode.StartByte():nameNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "object_creation_expression":
+		// new ClassName()
+		typeNode := c.findChildNodeByType(node, "identifier")
+		if typeNode != nil {
+			typeName := content[typeNode.StartByte():typeNode.EndByte()]
+			if typeName != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, typeName),
+					FromSymbol: fromSym,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "using_directive":
+		// Using statements
+		nameNode := c.findChildNodeByType(node, "qualified_name")
+		if nameNode == nil {
+			nameNode = c.findChildNodeByType(node, "identifier")
+		}
+		if nameNode != nil {
+			usingPath := content[nameNode.StartByte():nameNode.EndByte()]
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, usingPath),
+				FromSymbol: file.Path,
+				ToSymbol:   usingPath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "identifier":
+		// Type usage in declarations
+		parent := node.Parent()
+		if parent != nil && (parent.Type() == "variable_declaration" || parent.Type() == "parameter") {
+			typeName := content[node.StartByte():node.EndByte()]
+			if typeName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+					FromSymbol: currentFunc,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractKotlinRefs extracts references from Kotlin code.
+func (c *Chunker) extractKotlinRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call_expression":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "simple_identifier")
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "import_header":
+		// Import statements
+		idNode := c.findChildNodeByType(node, "identifier")
+		if idNode != nil {
+			importPath := content[idNode.StartByte():idNode.EndByte()]
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, importPath),
+				FromSymbol: file.Path,
+				ToSymbol:   importPath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "user_type":
+		// Type usage
+		parent := node.Parent()
+		if parent != nil && parent.Type() != "class_declaration" && parent.Type() != "interface_declaration" {
+			typeNode := c.findChildNodeByType(node, "type_identifier")
+			if typeNode != nil {
+				typeName := content[typeNode.StartByte():typeNode.EndByte()]
+				if typeName != "" && currentFunc != "" {
+					ref := &types.Reference{
+						ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+						FromSymbol: currentFunc,
+						ToSymbol:   typeName,
+						Kind:       types.RefKindTypeUse,
+						FilePath:   file.Path,
+						Line:       line,
+						IsExternal: !localSymbols[typeName],
+					}
+					*refs = append(*refs, ref)
+				}
+			}
+		}
+	}
+}
+
+// extractSwiftRefs extracts references from Swift code.
+func (c *Chunker) extractSwiftRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call_expression":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "simple_identifier")
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "import_declaration":
+		// Import statements
+		pathNode := c.findChildNodeByType(node, "identifier")
+		if pathNode != nil {
+			importPath := content[pathNode.StartByte():pathNode.EndByte()]
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, importPath),
+				FromSymbol: file.Path,
+				ToSymbol:   importPath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "type_identifier":
+		// Type usage
+		parent := node.Parent()
+		if parent != nil && parent.Type() != "class_declaration" && parent.Type() != "struct_declaration" && parent.Type() != "protocol_declaration" {
+			typeName := content[node.StartByte():node.EndByte()]
+			if typeName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+					FromSymbol: currentFunc,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractScalaRefs extracts references from Scala code.
+func (c *Chunker) extractScalaRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call_expression":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "identifier")
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "import_declaration":
+		// Import statements
+		pathNode := c.findChildNodeByType(node, "stable_identifier")
+		if pathNode != nil {
+			importPath := content[pathNode.StartByte():pathNode.EndByte()]
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, importPath),
+				FromSymbol: file.Path,
+				ToSymbol:   importPath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "type_identifier":
+		// Type usage
+		parent := node.Parent()
+		if parent != nil && parent.Type() != "class_definition" && parent.Type() != "trait_definition" && parent.Type() != "object_definition" {
 			typeName := content[node.StartByte():node.EndByte()]
 			if typeName != "" && currentFunc != "" {
 				ref := &types.Reference{

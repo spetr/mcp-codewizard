@@ -43,7 +43,7 @@ mcp-codewizard solves all of this by creating a local semantic index of your cod
 - **Plugin Architecture** - Swap embedding providers, chunking strategies, vector stores
 - **Incremental Indexing** - Only re-index changed files
 - **Parallel Processing** - Fast indexing using all CPU cores
-- **TreeSitter Parsing** - Language-aware code chunking for 10+ languages
+- **TreeSitter Parsing** - Language-aware code chunking for 14 languages
 - **Local-First** - Everything runs on your machine with Ollama
 
 ## Quick Start
@@ -188,6 +188,18 @@ index:
     - "**/*.py"
     - "**/*.js"
     - "**/*.ts"
+    - "**/*.jsx"
+    - "**/*.tsx"
+    - "**/*.rs"
+    - "**/*.java"
+    - "**/*.c"
+    - "**/*.cpp"
+    - "**/*.rb"
+    - "**/*.php"
+    - "**/*.cs"
+    - "**/*.kt"
+    - "**/*.swift"
+    - "**/*.scala"
   exclude:
     - "**/vendor/**"
     - "**/node_modules/**"
@@ -424,7 +436,7 @@ provider.RegisterEmbedding("my-provider", func(cfg provider.EmbeddingConfig) (pr
 
 ## Supported Languages
 
-TreeSitter chunking supports:
+TreeSitter chunking provides full AST-aware parsing for 14 languages:
 
 | Language | Extensions | Symbol Extraction |
 |----------|------------|-------------------|
@@ -432,12 +444,22 @@ TreeSitter chunking supports:
 | Python | `.py` | Functions, classes, methods |
 | JavaScript | `.js`, `.jsx` | Functions, classes, arrow functions |
 | TypeScript | `.ts`, `.tsx` | Functions, classes, interfaces, types |
-| Rust | `.rs` | Functions, structs, impls, traits |
-| Java | `.java` | Classes, methods, interfaces |
-| C/C++ | `.c`, `.cpp`, `.h` | Functions, structs, classes |
+| Rust | `.rs` | Functions, structs, impls, traits, enums |
+| Java | `.java` | Classes, methods, interfaces, enums |
+| C | `.c`, `.h` | Functions, structs, typedefs |
+| C++ | `.cpp`, `.hpp`, `.cc`, `.cxx` | Functions, classes, structs |
 | Ruby | `.rb` | Classes, methods, modules |
-| PHP | `.php` | Classes, functions, methods |
-| C# | `.cs` | Classes, methods, interfaces |
+| PHP | `.php` | Classes, functions, methods, traits, interfaces |
+| C# | `.cs` | Classes, methods, interfaces, structs, records, enums |
+| Kotlin | `.kt`, `.kts` | Functions, classes, objects, interfaces |
+| Swift | `.swift` | Functions, classes, structs, protocols, extensions |
+| Scala | `.scala`, `.sc` | Functions, classes, objects, traits |
+
+All languages support:
+- **Chunking** - Semantic code splitting based on AST structure
+- **Symbol extraction** - Functions, classes, methods, types
+- **Reference extraction** - Function calls, imports, type usage
+- **Call graph analysis** - Callers and callees for navigation
 
 ## Examples
 
