@@ -1,0 +1,486 @@
+# mcp-codewizard
+
+[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Semantic code search and analysis for AI coding assistants.**
+
+mcp-codewizard is an MCP (Model Context Protocol) server that provides intelligent code search and analysis capabilities to AI assistants like Claude. It indexes your codebase locally, enabling semantic search, call graph navigation, complexity analysis, and more.
+
+## Why mcp-codewizard?
+
+When working with AI coding assistants on large codebases, simple text search isn't enough. You need:
+
+- **Semantic understanding** - Find code by meaning, not just keywords
+- **Code navigation** - Understand how functions call each other
+- **Local processing** - Keep your code private, no cloud uploads
+- **Deep analysis** - Complexity metrics, dead code detection, patterns
+
+mcp-codewizard solves all of this by creating a local semantic index of your code that AI assistants can query through the MCP protocol.
+
+## Features
+
+### Core Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| **Semantic Search** | Find code by meaning using hybrid search (BM25 + vector + reranking) |
+| **Symbol Navigation** | Browse functions, types, variables with full metadata |
+| **Call Graph** | See who calls a function and what it calls |
+| **Code Context** | Get surrounding lines for better understanding |
+
+### Analysis Tools
+
+| Feature | Description |
+|---------|-------------|
+| **Complexity Metrics** | Cyclomatic complexity, cognitive complexity, nesting depth |
+| **Dead Code Detection** | Find unused functions and unreachable code |
+| **Git Blame Integration** | See who wrote each line and when |
+| **Entry Points** | Identify main functions, HTTP handlers, CLI commands |
+
+### Technical Highlights
+
+- **Plugin Architecture** - Swap embedding providers, chunking strategies, vector stores
+- **Incremental Indexing** - Only re-index changed files
+- **Parallel Processing** - Fast indexing using all CPU cores
+- **TreeSitter Parsing** - Language-aware code chunking for 10+ languages
+- **Local-First** - Everything runs on your machine with Ollama
+
+## Quick Start
+
+### 1. Install Prerequisites
+
+```bash
+# Install Ollama (for embeddings)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull the embedding model
+ollama pull nomic-embed-text
+```
+
+### 2. Install mcp-codewizard
+
+```bash
+# From source
+git clone https://github.com/spetr/mcp-codewizard
+cd mcp-codewizard
+CGO_ENABLED=1 go build -tags "fts5" -o bin/mcp-codewizard ./cmd/mcp-codewizard
+
+# Add to PATH
+export PATH=$PATH:$(pwd)/bin
+```
+
+### 3. Index Your Project
+
+```bash
+cd /path/to/your/project
+mcp-codewizard index
+```
+
+### 4. Configure Your AI Assistant
+
+Add to your Claude Code MCP configuration (`~/.claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "codeindex": {
+      "command": "/path/to/mcp-codewizard",
+      "args": ["serve", "--stdio"],
+      "cwd": "/path/to/your/project"
+    }
+  }
+}
+```
+
+## Installation
+
+### Requirements
+
+- **Go 1.21+** with CGO enabled
+- **Ollama** (recommended) or OpenAI API key
+- **~500MB disk** for embedding model
+- **~50MB per 10k LOC** for index storage
+
+### Build from Source
+
+```bash
+git clone https://github.com/spetr/mcp-codewizard
+cd mcp-codewizard
+
+# Build with CGO (required for sqlite-vec and TreeSitter)
+CGO_ENABLED=1 go build -tags "fts5" -o bin/mcp-codewizard ./cmd/mcp-codewizard
+
+# Verify installation
+./bin/mcp-codewizard version
+```
+
+### Docker (Coming Soon)
+
+```bash
+docker run -v $(pwd):/project ghcr.io/spetr/mcp-codewizard serve --stdio
+```
+
+## Configuration
+
+Configuration is stored in `.mcp-codewizard/config.yaml` in your project root.
+
+### Basic Configuration
+
+```yaml
+# .mcp-codewizard/config.yaml
+
+embedding:
+  provider: ollama
+  model: nomic-embed-text
+  endpoint: http://localhost:11434
+  batch_size: 32
+
+chunking:
+  strategy: treesitter    # or "simple" for basic line-based
+  max_chunk_size: 2000
+
+search:
+  mode: hybrid            # vector, bm25, or hybrid
+  default_limit: 10
+
+index:
+  include:
+    - "**/*.go"
+    - "**/*.py"
+    - "**/*.js"
+    - "**/*.ts"
+  exclude:
+    - "**/vendor/**"
+    - "**/node_modules/**"
+    - "**/.git/**"
+  use_gitignore: true
+```
+
+### With Reranking (Better Quality)
+
+```yaml
+reranker:
+  enabled: true
+  provider: ollama
+  model: qwen3-reranker
+  candidates: 100
+```
+
+### With OpenAI
+
+```yaml
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  # Set OPENAI_API_KEY environment variable
+```
+
+## CLI Usage
+
+### Indexing
+
+```bash
+# Index current directory
+mcp-codewizard index
+
+# Force full re-index
+mcp-codewizard index --force
+
+# Show what would be indexed
+mcp-codewizard index --dry-run
+
+# Index specific directory
+mcp-codewizard index /path/to/project
+```
+
+### Searching
+
+```bash
+# Semantic search
+mcp-codewizard search "HTTP authentication handler"
+
+# Search with filters
+mcp-codewizard search "database connection" --lang go --limit 20
+
+# Vector-only search (faster, less accurate)
+mcp-codewizard search "error handling" --mode vector
+```
+
+### Status
+
+```bash
+# Show index statistics
+mcp-codewizard status
+
+# Detailed stats
+mcp-codewizard status --verbose
+```
+
+### Configuration
+
+```bash
+# Initialize config with auto-detection
+mcp-codewizard config init
+
+# Validate configuration
+mcp-codewizard config validate
+```
+
+### MCP Server
+
+```bash
+# Start as stdio server (for AI assistants)
+mcp-codewizard serve --stdio
+
+# Start as HTTP server
+mcp-codewizard serve --http :8080
+```
+
+## MCP Tools Reference
+
+When used with an AI assistant, these tools are available:
+
+### Setup & Configuration
+
+| Tool | Description |
+|------|-------------|
+| `detect_environment` | Detect available providers, project structure, get recommendations |
+| `get_config` | Get current configuration |
+| `validate_config` | Validate config and test provider connections |
+| `apply_recommendation` | Apply a configuration preset (primary, low_memory, high_quality) |
+
+### Indexing & Search
+
+| Tool | Description |
+|------|-------------|
+| `index_codebase` | Index or re-index the project |
+| `search_code` | Semantic code search with filters |
+| `get_chunk` | Get a specific code chunk with context |
+| `get_status` | Get index statistics |
+| `clear_index` | Delete the index |
+
+### Symbol Navigation
+
+| Tool | Description |
+|------|-------------|
+| `get_symbols` | List symbols (functions, types, etc.) with filters |
+| `get_callers` | Find all callers of a function |
+| `get_callees` | Find all functions called by a function |
+
+### Analysis
+
+| Tool | Description |
+|------|-------------|
+| `get_complexity` | Get complexity metrics for a file or function |
+| `get_dead_code` | Find unused/unreachable code |
+| `get_blame` | Get git blame information for code |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        AI Assistant                              │
+│                    (Claude, GPT, etc.)                          │
+└─────────────────────────────────┬───────────────────────────────┘
+                                  │ MCP Protocol
+                                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      mcp-codewizard                               │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │  MCP Server  │  │   Indexer    │  │    Search Engine     │  │
+│  │   (stdio)    │  │  (parallel)  │  │ (hybrid BM25+vector) │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
+│                            │                    │                │
+│  ┌─────────────────────────┴────────────────────┴─────────────┐ │
+│  │                    Provider Layer                          │ │
+│  │  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌────────────┐   │ │
+│  │  │Embedding│  │ Chunking │  │Reranker │  │VectorStore │   │ │
+│  │  │ Ollama  │  │TreeSitter│  │  Qwen3  │  │ sqlite-vec │   │ │
+│  │  │ OpenAI  │  │  Simple  │  │  None   │  │            │   │ │
+│  │  └─────────┘  └──────────┘  └─────────┘  └────────────┘   │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    .mcp-codewizard/                               │
+│  ┌──────────────┐  ┌──────────────────────────────────────────┐ │
+│  │ config.yaml  │  │              index.db                    │ │
+│  │              │  │  • Chunks + embeddings (sqlite-vec)      │ │
+│  │              │  │  • Symbols + references                  │ │
+│  │              │  │  • BM25 full-text index (FTS5)          │ │
+│  └──────────────┘  └──────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### How It Works
+
+1. **Indexing Pipeline**
+   ```
+   Source Files → TreeSitter Parser → Chunks + Symbols + References
+                                           │
+                                           ▼
+                              Ollama/OpenAI Embedding API
+                                           │
+                                           ▼
+                              sqlite-vec Vector Storage
+   ```
+
+2. **Search Pipeline**
+   ```
+   Query → Embedding → Vector Search ─┐
+                                      ├─→ Score Fusion → Reranking → Results
+          BM25 Full-Text Search ──────┘
+   ```
+
+3. **Incremental Updates**
+   - File hashes are cached
+   - Only changed files are re-indexed
+   - Configuration changes trigger full re-index
+
+### Plugin System
+
+mcp-codewizard uses a plugin architecture for extensibility:
+
+```go
+// Register a custom embedding provider
+provider.RegisterEmbedding("my-provider", func(cfg provider.EmbeddingConfig) (provider.EmbeddingProvider, error) {
+    return mypackage.New(cfg), nil
+})
+```
+
+**Built-in Providers:**
+
+| Type | Providers |
+|------|-----------|
+| Embedding | `ollama`, `openai` |
+| Chunking | `treesitter`, `simple` |
+| Reranker | `ollama`, `none` |
+| VectorStore | `sqlitevec` |
+
+## Supported Languages
+
+TreeSitter chunking supports:
+
+| Language | Extensions | Symbol Extraction |
+|----------|------------|-------------------|
+| Go | `.go` | Functions, types, methods, interfaces |
+| Python | `.py` | Functions, classes, methods |
+| JavaScript | `.js`, `.jsx` | Functions, classes, arrow functions |
+| TypeScript | `.ts`, `.tsx` | Functions, classes, interfaces, types |
+| Rust | `.rs` | Functions, structs, impls, traits |
+| Java | `.java` | Classes, methods, interfaces |
+| C/C++ | `.c`, `.cpp`, `.h` | Functions, structs, classes |
+| Ruby | `.rb` | Classes, methods, modules |
+| PHP | `.php` | Classes, functions, methods |
+| C# | `.cs` | Classes, methods, interfaces |
+
+## Examples
+
+See the [examples/](examples/) directory for:
+
+- **Search Prompts** - How to ask your AI assistant to search code
+- **Analysis Prompts** - Complexity, dead code, blame queries
+- **Workflow Examples** - Onboarding, debugging, refactoring scenarios
+
+## Troubleshooting
+
+### Ollama Connection Failed
+
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+
+# Start Ollama
+ollama serve
+```
+
+### Model Not Found
+
+```bash
+# List available models
+ollama list
+
+# Pull required model
+ollama pull nomic-embed-text
+```
+
+### Slow Indexing
+
+```yaml
+# Reduce batch size for less memory usage
+embedding:
+  batch_size: 16
+
+# Or use simple chunking (faster, less accurate)
+chunking:
+  strategy: simple
+```
+
+### Large Codebase
+
+```yaml
+# Exclude more directories
+index:
+  exclude:
+    - "**/vendor/**"
+    - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/*.generated.*"
+    - "**/testdata/**"
+```
+
+## Development
+
+### Running Tests
+
+```bash
+CGO_ENABLED=1 go test -tags "fts5" ./...
+```
+
+### Building
+
+```bash
+CGO_ENABLED=1 go build -tags "fts5" -o bin/mcp-codewizard ./cmd/mcp-codewizard
+```
+
+### Project Structure
+
+```
+mcp-codewizard/
+├── cmd/mcp-codewizard/     # CLI entry point
+├── internal/
+│   ├── config/            # Configuration handling
+│   ├── index/             # Parallel indexing
+│   ├── search/            # Hybrid search engine
+│   ├── analysis/          # Complexity, dead code, blame
+│   ├── mcp/               # MCP server implementation
+│   └── wizard/            # Setup wizard
+├── pkg/
+│   ├── provider/          # Provider interfaces
+│   ├── types/             # Shared types
+│   └── plugin/            # External plugin support
+├── builtin/               # Built-in providers
+│   ├── embedding/         # Ollama, OpenAI
+│   ├── chunking/          # TreeSitter, Simple
+│   ├── reranker/          # Ollama, None
+│   └── vectorstore/       # sqlite-vec
+└── examples/              # Usage examples
+```
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+## Acknowledgments
+
+- Inspired by [zilliztech/claude-context](https://github.com/zilliztech/claude-context)
+- Built with [modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk)
+- Uses [sqlite-vec](https://github.com/asg017/sqlite-vec) for vector storage
+- Parsing powered by [go-tree-sitter](https://github.com/smacker/go-tree-sitter)

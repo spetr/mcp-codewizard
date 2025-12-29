@@ -1,0 +1,1215 @@
+// Package treesitter implements chunking using Tree-sitter for AST-aware splitting.
+package treesitter
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
+
+	sitter "github.com/smacker/go-tree-sitter"
+	tsc "github.com/smacker/go-tree-sitter/c"
+	"github.com/smacker/go-tree-sitter/cpp"
+	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/java"
+	"github.com/smacker/go-tree-sitter/javascript"
+	"github.com/smacker/go-tree-sitter/python"
+	"github.com/smacker/go-tree-sitter/rust"
+	"github.com/smacker/go-tree-sitter/typescript/tsx"
+	tstype "github.com/smacker/go-tree-sitter/typescript/typescript"
+
+	"github.com/spetr/mcp-codewizard/pkg/provider"
+	"github.com/spetr/mcp-codewizard/pkg/types"
+)
+
+// Default values
+const (
+	DefaultMaxChunkSize = 2000 // tokens
+	CharsPerToken       = 4    // rough approximation
+)
+
+// Config contains configuration for TreeSitter chunking.
+type Config struct {
+	MaxChunkSize int // Maximum chunk size in tokens
+}
+
+// Chunker implements AST-aware chunking using Tree-sitter.
+type Chunker struct {
+	config  Config
+	parsers map[string]*sitter.Parser
+}
+
+// New creates a new TreeSitter chunker.
+func New(cfg Config) *Chunker {
+	if cfg.MaxChunkSize == 0 {
+		cfg.MaxChunkSize = DefaultMaxChunkSize
+	}
+
+	return &Chunker{
+		config:  cfg,
+		parsers: make(map[string]*sitter.Parser),
+	}
+}
+
+// Name returns the strategy name.
+func (c *Chunker) Name() string {
+	return "treesitter"
+}
+
+// getParser returns a parser for the given language.
+func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool) {
+	var language *sitter.Language
+
+	switch lang {
+	case "go":
+		language = golang.GetLanguage()
+	case "python":
+		language = python.GetLanguage()
+	case "javascript", "jsx":
+		language = javascript.GetLanguage()
+	case "typescript":
+		language = tstype.GetLanguage()
+	case "tsx":
+		language = tsx.GetLanguage()
+	case "rust":
+		language = rust.GetLanguage()
+	case "java":
+		language = java.GetLanguage()
+	case "c", "h":
+		language = tsc.GetLanguage()
+	case "cpp", "hpp", "cc", "cxx":
+		language = cpp.GetLanguage()
+	default:
+		return nil, nil, false
+	}
+
+	parser := sitter.NewParser()
+	parser.SetLanguage(language)
+
+	return parser, language, true
+}
+
+// Chunk splits a file into semantic chunks based on AST structure.
+func (c *Chunker) Chunk(file *types.SourceFile) ([]*types.Chunk, error) {
+	parser, _, ok := c.getParser(file.Language)
+	if !ok {
+		// Fall back to simple chunking for unsupported languages
+		return nil, fmt.Errorf("language %s not supported by TreeSitter", file.Language)
+	}
+	defer parser.Close()
+
+	tree, err := parser.ParseCtx(context.Background(), nil, file.Content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse file: %w", err)
+	}
+	defer tree.Close()
+
+	root := tree.RootNode()
+	content := string(file.Content)
+	lines := strings.Split(content, "\n")
+
+	var chunks []*types.Chunk
+	maxChars := c.config.MaxChunkSize * CharsPerToken
+
+	// Walk the AST and extract meaningful nodes
+	c.walkNode(root, file, lines, maxChars, &chunks, "")
+
+	// If no chunks were created, create one for the whole file
+	if len(chunks) == 0 && len(content) > 0 {
+		hash := sha256.Sum256([]byte(content))
+		chunks = append(chunks, &types.Chunk{
+			ID:        fmt.Sprintf("%s:1:%s", file.Path, hex.EncodeToString(hash[:8])),
+			FilePath:  file.Path,
+			Language:  file.Language,
+			Content:   content,
+			ChunkType: types.ChunkTypeFile,
+			StartLine: 1,
+			EndLine:   len(lines),
+			Hash:      hex.EncodeToString(hash[:]),
+		})
+	}
+
+	return chunks, nil
+}
+
+// walkNode recursively walks the AST to extract chunks.
+func (c *Chunker) walkNode(node *sitter.Node, file *types.SourceFile, lines []string, maxChars int, chunks *[]*types.Chunk, parentName string) {
+	nodeType := node.Type()
+	content := string(file.Content)
+
+	// Determine if this node should be a chunk
+	chunkType, name := c.classifyNode(nodeType, node, content, file.Language)
+
+	if chunkType != "" {
+		startLine := int(node.StartPoint().Row) + 1
+		endLine := int(node.EndPoint().Row) + 1
+
+		// Extract content for this node
+		startByte := node.StartByte()
+		endByte := node.EndByte()
+		nodeContent := content[startByte:endByte]
+
+		// Check if chunk is too large
+		if len(nodeContent) > maxChars {
+			// For very large functions/classes, we still create a chunk
+			// but also recurse into children
+			c.createChunk(file, nodeContent, chunkType, name, parentName, startLine, endLine, chunks)
+
+			// Also walk children for nested definitions
+			for i := 0; i < int(node.ChildCount()); i++ {
+				child := node.Child(i)
+				c.walkNode(child, file, lines, maxChars, chunks, name)
+			}
+		} else {
+			c.createChunk(file, nodeContent, chunkType, name, parentName, startLine, endLine, chunks)
+		}
+		return
+	}
+
+	// Recurse into children
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		c.walkNode(child, file, lines, maxChars, chunks, parentName)
+	}
+}
+
+// classifyNode determines the chunk type and name for a node.
+func (c *Chunker) classifyNode(nodeType string, node *sitter.Node, content string, lang string) (types.ChunkType, string) {
+	switch lang {
+	case "go":
+		return c.classifyGoNode(nodeType, node, content)
+	case "python":
+		return c.classifyPythonNode(nodeType, node, content)
+	case "javascript", "jsx", "typescript", "tsx":
+		return c.classifyJSNode(nodeType, node, content)
+	case "rust":
+		return c.classifyRustNode(nodeType, node, content)
+	case "java":
+		return c.classifyJavaNode(nodeType, node, content)
+	case "c", "cpp", "h", "hpp":
+		return c.classifyCNode(nodeType, node, content)
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyGoNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "method_declaration":
+		name := c.findChildByType(node, "field_identifier", content)
+		return types.ChunkTypeMethod, name
+	case "type_declaration":
+		spec := c.findChildNodeByType(node, "type_spec")
+		if spec != nil {
+			name := c.findChildByType(spec, "type_identifier", content)
+			return types.ChunkTypeClass, name
+		}
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyPythonNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "class_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyJSNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_declaration", "function":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "class_declaration", "class":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "method_definition":
+		name := c.findChildByType(node, "property_identifier", content)
+		return types.ChunkTypeMethod, name
+	case "arrow_function":
+		// Try to find the variable name if this is assigned
+		parent := node.Parent()
+		if parent != nil && parent.Type() == "variable_declarator" {
+			name := c.findChildByType(parent, "identifier", content)
+			return types.ChunkTypeFunction, name
+		}
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyRustNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_item":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeFunction, name
+	case "impl_item":
+		// Get the type being implemented
+		typeNode := c.findChildNodeByType(node, "type_identifier")
+		if typeNode != nil {
+			name := content[typeNode.StartByte():typeNode.EndByte()]
+			return types.ChunkTypeClass, "impl " + name
+		}
+	case "struct_item":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "enum_item":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "trait_item":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyJavaNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "method_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeMethod, name
+	case "class_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	case "interface_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+func (c *Chunker) classifyCNode(nodeType string, node *sitter.Node, content string) (types.ChunkType, string) {
+	switch nodeType {
+	case "function_definition":
+		declarator := c.findChildNodeByType(node, "function_declarator")
+		if declarator != nil {
+			name := c.findChildByType(declarator, "identifier", content)
+			return types.ChunkTypeFunction, name
+		}
+	case "struct_specifier":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	case "class_specifier":
+		name := c.findChildByType(node, "type_identifier", content)
+		return types.ChunkTypeClass, name
+	}
+	return "", ""
+}
+
+// findChildByType finds a child node of the given type and returns its content.
+func (c *Chunker) findChildByType(node *sitter.Node, childType string, content string) string {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == childType {
+			return content[child.StartByte():child.EndByte()]
+		}
+	}
+	return ""
+}
+
+// findChildNodeByType finds a child node of the given type.
+func (c *Chunker) findChildNodeByType(node *sitter.Node, childType string) *sitter.Node {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == childType {
+			return child
+		}
+	}
+	return nil
+}
+
+// createChunk creates a chunk and appends it to the list.
+func (c *Chunker) createChunk(file *types.SourceFile, content string, chunkType types.ChunkType, name, parentName string, startLine, endLine int, chunks *[]*types.Chunk) {
+	hash := sha256.Sum256([]byte(content))
+	hashStr := hex.EncodeToString(hash[:8])
+
+	chunk := &types.Chunk{
+		ID:         fmt.Sprintf("%s:%d:%s", file.Path, startLine, hashStr),
+		FilePath:   file.Path,
+		Language:   file.Language,
+		Content:    content,
+		ChunkType:  chunkType,
+		Name:       name,
+		ParentName: parentName,
+		StartLine:  startLine,
+		EndLine:    endLine,
+		Hash:       hex.EncodeToString(hash[:]),
+	}
+
+	*chunks = append(*chunks, chunk)
+}
+
+// SupportedLanguages returns languages supported by this chunker.
+func (c *Chunker) SupportedLanguages() []string {
+	return []string{
+		"go", "python", "javascript", "typescript", "jsx", "tsx",
+		"rust", "java", "c", "cpp", "h",
+	}
+}
+
+// SupportsLanguage checks if a language is supported.
+func (c *Chunker) SupportsLanguage(lang string) bool {
+	_, _, ok := c.getParser(lang)
+	return ok
+}
+
+// ExtractSymbols extracts symbols from a file using Tree-sitter.
+func (c *Chunker) ExtractSymbols(file *types.SourceFile) ([]*types.Symbol, error) {
+	parser, _, ok := c.getParser(file.Language)
+	if !ok {
+		return nil, nil
+	}
+	defer parser.Close()
+
+	tree, err := parser.ParseCtx(context.Background(), nil, file.Content)
+	if err != nil {
+		return nil, err
+	}
+	defer tree.Close()
+
+	content := string(file.Content)
+	var symbols []*types.Symbol
+
+	c.extractSymbolsFromNode(tree.RootNode(), file, content, &symbols)
+
+	return symbols, nil
+}
+
+// extractSymbolsFromNode recursively extracts symbols from AST nodes.
+func (c *Chunker) extractSymbolsFromNode(node *sitter.Node, file *types.SourceFile, content string, symbols *[]*types.Symbol) {
+	nodeType := node.Type()
+
+	// Check if this node is a symbol definition
+	if sym := c.nodeToSymbol(nodeType, node, file, content); sym != nil {
+		*symbols = append(*symbols, sym)
+	}
+
+	// Recurse into children
+	for i := 0; i < int(node.ChildCount()); i++ {
+		c.extractSymbolsFromNode(node.Child(i), file, content, symbols)
+	}
+}
+
+// nodeToSymbol converts a node to a Symbol if applicable.
+func (c *Chunker) nodeToSymbol(nodeType string, node *sitter.Node, file *types.SourceFile, content string) *types.Symbol {
+	startLine := int(node.StartPoint().Row) + 1
+	endLine := int(node.EndPoint().Row) + 1
+
+	var sym *types.Symbol
+
+	switch file.Language {
+	case "go":
+		sym = c.goNodeToSymbol(nodeType, node, content)
+	case "python":
+		sym = c.pythonNodeToSymbol(nodeType, node, content)
+	case "javascript", "jsx", "typescript", "tsx":
+		sym = c.jsNodeToSymbol(nodeType, node, content)
+	case "rust":
+		sym = c.rustNodeToSymbol(nodeType, node, content)
+	case "java":
+		sym = c.javaNodeToSymbol(nodeType, node, content)
+	case "c", "cpp", "h", "hpp":
+		sym = c.cNodeToSymbol(nodeType, node, content)
+	}
+
+	if sym != nil {
+		sym.FilePath = file.Path
+		sym.StartLine = startLine
+		sym.EndLine = endLine
+		sym.ID = fmt.Sprintf("%s:%s:%d", file.Path, sym.Name, startLine)
+
+		// Extract doc comment if present
+		sym.DocComment = c.extractDocComment(node, content)
+
+		// Determine visibility
+		sym.Visibility = c.determineVisibility(sym.Name, file.Language)
+	}
+
+	return sym
+}
+
+func (c *Chunker) goNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "method_declaration":
+		name := c.findChildByType(node, "field_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindMethod,
+		}
+	case "type_declaration":
+		spec := c.findChildNodeByType(node, "type_spec")
+		if spec != nil {
+			name := c.findChildByType(spec, "type_identifier", content)
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindType,
+			}
+		}
+	case "const_spec":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindConstant,
+		}
+	case "var_spec":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) pythonNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "class_definition":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) jsNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "class_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "method_definition":
+		name := c.findChildByType(node, "property_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindMethod,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) rustNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_item":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindFunction,
+		}
+	case "struct_item":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "trait_item":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindInterface,
+		}
+	case "enum_item":
+		name := c.findChildByType(node, "type_identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "const_item":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindConstant,
+		}
+	case "static_item":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindVariable,
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) javaNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "method_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindMethod,
+		}
+	case "class_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "interface_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindInterface,
+		}
+	case "enum_declaration":
+		name := c.findChildByType(node, "identifier", content)
+		return &types.Symbol{
+			Name: name,
+			Kind: types.SymbolKindType,
+		}
+	case "field_declaration":
+		declarator := c.findChildNodeByType(node, "variable_declarator")
+		if declarator != nil {
+			name := c.findChildByType(declarator, "identifier", content)
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindVariable,
+			}
+		}
+	case "constant_declaration":
+		declarator := c.findChildNodeByType(node, "variable_declarator")
+		if declarator != nil {
+			name := c.findChildByType(declarator, "identifier", content)
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindConstant,
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Chunker) cNodeToSymbol(nodeType string, node *sitter.Node, content string) *types.Symbol {
+	switch nodeType {
+	case "function_definition":
+		declarator := c.findChildNodeByType(node, "function_declarator")
+		if declarator != nil {
+			name := c.findChildByType(declarator, "identifier", content)
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindFunction,
+			}
+		}
+	case "declaration":
+		// Check if it's a function declaration
+		declarator := c.findChildNodeByType(node, "function_declarator")
+		if declarator != nil {
+			name := c.findChildByType(declarator, "identifier", content)
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindFunction,
+			}
+		}
+		// Variable declaration
+		initDeclarator := c.findChildNodeByType(node, "init_declarator")
+		if initDeclarator != nil {
+			name := c.findChildByType(initDeclarator, "identifier", content)
+			if name != "" {
+				return &types.Symbol{
+					Name: name,
+					Kind: types.SymbolKindVariable,
+				}
+			}
+		}
+	case "struct_specifier":
+		name := c.findChildByType(node, "type_identifier", content)
+		if name != "" {
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindType,
+			}
+		}
+	case "class_specifier":
+		name := c.findChildByType(node, "type_identifier", content)
+		if name != "" {
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindType,
+			}
+		}
+	case "enum_specifier":
+		name := c.findChildByType(node, "type_identifier", content)
+		if name != "" {
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindType,
+			}
+		}
+	case "type_definition":
+		declarator := c.findChildNodeByType(node, "type_declarator")
+		if declarator != nil {
+			name := c.findChildByType(declarator, "type_identifier", content)
+			return &types.Symbol{
+				Name: name,
+				Kind: types.SymbolKindType,
+			}
+		}
+	}
+	return nil
+}
+
+// extractDocComment extracts documentation comment preceding a node.
+func (c *Chunker) extractDocComment(node *sitter.Node, content string) string {
+	// Look for comment nodes before this node
+	prev := node.PrevSibling()
+	if prev != nil && strings.Contains(prev.Type(), "comment") {
+		return content[prev.StartByte():prev.EndByte()]
+	}
+	return ""
+}
+
+// determineVisibility determines if a symbol is public or private.
+func (c *Chunker) determineVisibility(name, lang string) string {
+	if name == "" {
+		return "private"
+	}
+
+	switch lang {
+	case "go":
+		// Go: uppercase first letter = public
+		if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
+			return "public"
+		}
+		return "private"
+	case "python":
+		// Python: leading underscore = private
+		if strings.HasPrefix(name, "_") {
+			return "private"
+		}
+		return "public"
+	default:
+		return "public"
+	}
+}
+
+// ExtractReferences extracts references from a file.
+func (c *Chunker) ExtractReferences(file *types.SourceFile) ([]*types.Reference, error) {
+	parser, _, ok := c.getParser(file.Language)
+	if !ok {
+		return nil, nil
+	}
+	defer parser.Close()
+
+	tree, err := parser.ParseCtx(context.Background(), nil, file.Content)
+	if err != nil {
+		return nil, err
+	}
+	defer tree.Close()
+
+	content := string(file.Content)
+	var refs []*types.Reference
+
+	// First, build a map of local symbols for determining if refs are external
+	localSymbols := make(map[string]bool)
+	symbols, _ := c.ExtractSymbols(file)
+	for _, sym := range symbols {
+		localSymbols[sym.Name] = true
+	}
+
+	c.extractRefsFromNode(tree.RootNode(), file, content, localSymbols, &refs, "")
+
+	return refs, nil
+}
+
+// extractRefsFromNode recursively extracts references from AST nodes.
+func (c *Chunker) extractRefsFromNode(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+
+	// Track current function context
+	switch file.Language {
+	case "go":
+		if nodeType == "function_declaration" || nodeType == "method_declaration" {
+			name := c.findChildByType(node, "identifier", content)
+			if name == "" {
+				name = c.findChildByType(node, "field_identifier", content)
+			}
+			currentFunc = name
+		}
+	}
+
+	// Extract references based on language
+	switch file.Language {
+	case "go":
+		c.extractGoRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "python":
+		c.extractPythonRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "javascript", "jsx", "typescript", "tsx":
+		c.extractJSRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "rust":
+		c.extractRustRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "java":
+		c.extractJavaRefs(node, file, content, localSymbols, refs, currentFunc)
+	case "c", "cpp", "h", "hpp":
+		c.extractCRefs(node, file, content, localSymbols, refs, currentFunc)
+	}
+
+	// Recurse into children
+	for i := 0; i < int(node.ChildCount()); i++ {
+		c.extractRefsFromNode(node.Child(i), file, content, localSymbols, refs, currentFunc)
+	}
+}
+
+// extractGoRefs extracts references from Go code.
+func (c *Chunker) extractGoRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call_expression":
+		// Function/method calls
+		funcNode := c.findChildNodeByType(node, "identifier")
+		if funcNode == nil {
+			// Try selector_expression for method calls
+			selectorNode := c.findChildNodeByType(node, "selector_expression")
+			if selectorNode != nil {
+				funcNode = c.findChildNodeByType(selectorNode, "field_identifier")
+			}
+		}
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: currentFunc,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "type_identifier":
+		// Type usage (but not in type declarations)
+		parent := node.Parent()
+		if parent != nil && parent.Type() != "type_spec" {
+			typeName := content[node.StartByte():node.EndByte()]
+			if typeName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+					FromSymbol: currentFunc,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "import_spec":
+		// Import statements
+		pathNode := c.findChildNodeByType(node, "interpreted_string_literal")
+		if pathNode != nil {
+			importPath := content[pathNode.StartByte():pathNode.EndByte()]
+			importPath = strings.Trim(importPath, "\"")
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, importPath),
+				FromSymbol: file.Path,
+				ToSymbol:   importPath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+	}
+}
+
+// extractPythonRefs extracts references from Python code.
+func (c *Chunker) extractPythonRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "identifier")
+		if funcNode == nil {
+			// Try attribute for method calls
+			attrNode := c.findChildNodeByType(node, "attribute")
+			if attrNode != nil {
+				funcNode = c.findChildNodeByType(attrNode, "identifier")
+			}
+		}
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "import_statement", "import_from_statement":
+		// Import statements
+		modNode := c.findChildNodeByType(node, "dotted_name")
+		if modNode != nil {
+			modName := content[modNode.StartByte():modNode.EndByte()]
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, modName),
+				FromSymbol: file.Path,
+				ToSymbol:   modName,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+	}
+}
+
+// extractJSRefs extracts references from JavaScript/TypeScript code.
+func (c *Chunker) extractJSRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call_expression":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "identifier")
+		if funcNode == nil {
+			// Try member_expression for method calls
+			memberNode := c.findChildNodeByType(node, "member_expression")
+			if memberNode != nil {
+				funcNode = c.findChildNodeByType(memberNode, "property_identifier")
+			}
+		}
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "import_statement":
+		// Import statements
+		sourceNode := c.findChildNodeByType(node, "string")
+		if sourceNode != nil {
+			source := content[sourceNode.StartByte():sourceNode.EndByte()]
+			source = strings.Trim(source, "\"'")
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, source),
+				FromSymbol: file.Path,
+				ToSymbol:   source,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+	}
+}
+
+// extractRustRefs extracts references from Rust code.
+func (c *Chunker) extractRustRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call_expression":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "identifier")
+		if funcNode == nil {
+			// Try field_expression for method calls
+			fieldNode := c.findChildNodeByType(node, "field_expression")
+			if fieldNode != nil {
+				funcNode = c.findChildNodeByType(fieldNode, "field_identifier")
+			}
+		}
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "use_declaration":
+		// Use statements
+		pathNode := c.findChildNodeByType(node, "scoped_identifier")
+		if pathNode == nil {
+			pathNode = c.findChildNodeByType(node, "identifier")
+		}
+		if pathNode != nil {
+			usePath := content[pathNode.StartByte():pathNode.EndByte()]
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, usePath),
+				FromSymbol: file.Path,
+				ToSymbol:   usePath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "type_identifier":
+		// Type usage
+		parent := node.Parent()
+		if parent != nil && parent.Type() != "struct_item" && parent.Type() != "enum_item" {
+			typeName := content[node.StartByte():node.EndByte()]
+			if typeName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+					FromSymbol: currentFunc,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractJavaRefs extracts references from Java code.
+func (c *Chunker) extractJavaRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "method_invocation":
+		// Method calls
+		nameNode := c.findChildNodeByType(node, "identifier")
+		if nameNode != nil {
+			calledFunc := content[nameNode.StartByte():nameNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "object_creation_expression":
+		// Constructor calls (new ClassName())
+		typeNode := c.findChildNodeByType(node, "type_identifier")
+		if typeNode != nil {
+			typeName := content[typeNode.StartByte():typeNode.EndByte()]
+			if typeName != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, typeName),
+					FromSymbol: fromSym,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "import_declaration":
+		// Import statements
+		pathNode := c.findChildNodeByType(node, "scoped_identifier")
+		if pathNode != nil {
+			importPath := content[pathNode.StartByte():pathNode.EndByte()]
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, importPath),
+				FromSymbol: file.Path,
+				ToSymbol:   importPath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "type_identifier":
+		// Type usage
+		parent := node.Parent()
+		if parent != nil && parent.Type() != "class_declaration" && parent.Type() != "interface_declaration" {
+			typeName := content[node.StartByte():node.EndByte()]
+			if typeName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+					FromSymbol: currentFunc,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// extractCRefs extracts references from C/C++ code.
+func (c *Chunker) extractCRefs(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
+	nodeType := node.Type()
+	line := int(node.StartPoint().Row) + 1
+
+	switch nodeType {
+	case "call_expression":
+		// Function calls
+		funcNode := c.findChildNodeByType(node, "identifier")
+		if funcNode == nil {
+			// Try field_expression for method calls
+			fieldNode := c.findChildNodeByType(node, "field_expression")
+			if fieldNode != nil {
+				funcNode = c.findChildNodeByType(fieldNode, "field_identifier")
+			}
+		}
+		if funcNode != nil {
+			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
+			if calledFunc != "" {
+				fromSym := currentFunc
+				if fromSym == "" {
+					fromSym = file.Path
+				}
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+					FromSymbol: fromSym,
+					ToSymbol:   calledFunc,
+					Kind:       types.RefKindCall,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[calledFunc],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+
+	case "preproc_include":
+		// #include statements
+		pathNode := c.findChildNodeByType(node, "string_literal")
+		if pathNode == nil {
+			pathNode = c.findChildNodeByType(node, "system_lib_string")
+		}
+		if pathNode != nil {
+			includePath := content[pathNode.StartByte():pathNode.EndByte()]
+			includePath = strings.Trim(includePath, "\"<>")
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:import:%s", file.Path, line, includePath),
+				FromSymbol: file.Path,
+				ToSymbol:   includePath,
+				Kind:       types.RefKindImport,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: true,
+			}
+			*refs = append(*refs, ref)
+		}
+
+	case "type_identifier":
+		// Type usage
+		parent := node.Parent()
+		if parent != nil && parent.Type() != "struct_specifier" && parent.Type() != "class_specifier" {
+			typeName := content[node.StartByte():node.EndByte()]
+			if typeName != "" && currentFunc != "" {
+				ref := &types.Reference{
+					ID:         fmt.Sprintf("%s:%d:type:%s", file.Path, line, typeName),
+					FromSymbol: currentFunc,
+					ToSymbol:   typeName,
+					Kind:       types.RefKindTypeUse,
+					FilePath:   file.Path,
+					Line:       line,
+					IsExternal: !localSymbols[typeName],
+				}
+				*refs = append(*refs, ref)
+			}
+		}
+	}
+}
+
+// Close releases resources.
+func (c *Chunker) Close() error {
+	for _, parser := range c.parsers {
+		parser.Close()
+	}
+	return nil
+}
+
+// Ensure Chunker implements ChunkingStrategy interface
+var _ provider.ChunkingStrategy = (*Chunker)(nil)
