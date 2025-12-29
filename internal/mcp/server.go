@@ -74,6 +74,9 @@ func New(cfg Config) (*Server, error) {
 	// Register tools
 	s.registerTools(mcpServer)
 
+	// Register project memory tools
+	s.registerProjectMemoryTools(mcpServer)
+
 	s.mcpServer = mcpServer
 	return s, nil
 }

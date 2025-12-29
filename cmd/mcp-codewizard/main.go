@@ -25,6 +25,7 @@ import (
 	"github.com/spetr/mcp-codewizard/internal/config"
 	"github.com/spetr/mcp-codewizard/internal/index"
 	"github.com/spetr/mcp-codewizard/internal/mcp"
+	"github.com/spetr/mcp-codewizard/internal/memory"
 	"github.com/spetr/mcp-codewizard/internal/search"
 	"github.com/spetr/mcp-codewizard/internal/wizard"
 	"github.com/spetr/mcp-codewizard/pkg/plugin/host"
@@ -193,6 +194,92 @@ var pluginLoadCmd = &cobra.Command{
 	},
 }
 
+// Memory commands
+var memoryCmd = &cobra.Command{
+	Use:   "memory",
+	Short: "Project memory management (notes, decisions, issues, sessions)",
+}
+
+var memoryStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show memory status and summary",
+	Run: func(cmd *cobra.Command, args []string) {
+		runMemoryStatus()
+	},
+}
+
+var memoryNotesCmd = &cobra.Command{
+	Use:   "notes",
+	Short: "List project notes",
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		tag, _ := cmd.Flags().GetString("tag")
+		runMemoryNotesList(limit, tag)
+	},
+}
+
+var memoryDecisionsCmd = &cobra.Command{
+	Use:   "decisions",
+	Short: "List architecture decisions (ADRs)",
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		status, _ := cmd.Flags().GetString("status")
+		runMemoryDecisionsList(limit, status)
+	},
+}
+
+var memoryIssuesCmd = &cobra.Command{
+	Use:   "issues",
+	Short: "List known issues",
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		open, _ := cmd.Flags().GetBool("open")
+		runMemoryIssuesList(limit, open)
+	},
+}
+
+var memorySessionsCmd = &cobra.Command{
+	Use:   "sessions",
+	Short: "List session history",
+	Run: func(cmd *cobra.Command, args []string) {
+		limit, _ := cmd.Flags().GetInt("limit")
+		runMemorySessions(limit)
+	},
+}
+
+var memoryContextCmd = &cobra.Command{
+	Use:   "context",
+	Short: "Show current working context",
+	Run: func(cmd *cobra.Command, args []string) {
+		runMemoryContext()
+	},
+}
+
+var memoryExportCmd = &cobra.Command{
+	Use:   "export",
+	Short: "Export all memory as JSON",
+	Run: func(cmd *cobra.Command, args []string) {
+		runMemoryExport()
+	},
+}
+
+var memoryClearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Clear all memory data",
+	Run: func(cmd *cobra.Command, args []string) {
+		force, _ := cmd.Flags().GetBool("force")
+		runMemoryClear(force)
+	},
+}
+
+var memoryInstallHooksCmd = &cobra.Command{
+	Use:   "install-hooks",
+	Short: "Install git hooks for memory sync",
+	Run: func(cmd *cobra.Command, args []string) {
+		runMemoryInstallHooks()
+	},
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default: .mcp-codewizard/config.yaml)")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
@@ -217,6 +304,30 @@ func init() {
 	pluginCmd.AddCommand(pluginListCmd)
 	pluginCmd.AddCommand(pluginLoadCmd)
 
+	// Memory command flags
+	memoryNotesCmd.Flags().IntP("limit", "l", 20, "maximum notes to show")
+	memoryNotesCmd.Flags().StringP("tag", "t", "", "filter by tag")
+
+	memoryDecisionsCmd.Flags().IntP("limit", "l", 20, "maximum decisions to show")
+	memoryDecisionsCmd.Flags().StringP("status", "s", "", "filter by status (proposed, accepted, deprecated)")
+
+	memoryIssuesCmd.Flags().IntP("limit", "l", 20, "maximum issues to show")
+	memoryIssuesCmd.Flags().Bool("open", false, "show only open issues")
+
+	memorySessionsCmd.Flags().IntP("limit", "l", 10, "maximum sessions to show")
+
+	memoryClearCmd.Flags().BoolP("force", "f", false, "force clear without confirmation")
+
+	memoryCmd.AddCommand(memoryStatusCmd)
+	memoryCmd.AddCommand(memoryNotesCmd)
+	memoryCmd.AddCommand(memoryDecisionsCmd)
+	memoryCmd.AddCommand(memoryIssuesCmd)
+	memoryCmd.AddCommand(memorySessionsCmd)
+	memoryCmd.AddCommand(memoryContextCmd)
+	memoryCmd.AddCommand(memoryExportCmd)
+	memoryCmd.AddCommand(memoryClearCmd)
+	memoryCmd.AddCommand(memoryInstallHooksCmd)
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(indexCmd)
 	rootCmd.AddCommand(searchCmd)
@@ -226,6 +337,7 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(detectCmd)
 	rootCmd.AddCommand(pluginCmd)
+	rootCmd.AddCommand(memoryCmd)
 }
 
 func setupLogging() {
@@ -948,4 +1060,269 @@ func runPluginLoad(name string, pluginType string) {
 	}
 
 	fmt.Println("\nPlugin test complete.")
+}
+
+// Memory command implementations
+
+func runMemoryStatus() {
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	summary := store.GetSummary()
+	git := memory.NewGitIntegration(store)
+
+	fmt.Println("=== Memory Status ===")
+	fmt.Printf("Project: %s\n", filepath.Base(cwd))
+
+	if git.IsGitRepo() {
+		state := git.GetGitState()
+		fmt.Printf("Branch:  %s\n", state.Branch)
+		if state.IsDirty {
+			fmt.Printf("Status:  %d uncommitted changes\n", len(state.DirtyFiles))
+		}
+	}
+
+	fmt.Printf("\nNotes:     %d\n", summary.NotesCount)
+	fmt.Printf("Decisions: %d\n", summary.DecisionsCount)
+	fmt.Printf("Todos:     %d active\n", summary.ActiveTodos)
+	fmt.Printf("Issues:    %d open\n", summary.OpenIssues)
+
+	if summary.CurrentTask != "" {
+		fmt.Printf("\nCurrent task: %s\n", summary.CurrentTask)
+	}
+
+	if len(summary.PendingTodos) > 0 {
+		fmt.Println("\nHigh priority todos:")
+		for _, todo := range summary.PendingTodos {
+			fmt.Printf("  - %s (%s)\n", todo.Title, todo.ID)
+		}
+	}
+}
+
+func runMemoryNotesList(limit int, tag string) {
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	req := memory.ListNotesRequest{Limit: limit}
+	if tag != "" {
+		req.Tags = []string{tag}
+	}
+
+	notes := store.ListNotes(req)
+
+	if len(notes) == 0 {
+		fmt.Println("No notes found.")
+		return
+	}
+
+	fmt.Printf("=== Notes (%d) ===\n\n", len(notes))
+	for _, note := range notes {
+		fmt.Printf("[%s] %s\n", note.ID, note.Title)
+		if len(note.Tags) > 0 {
+			fmt.Printf("  Tags: %v\n", note.Tags)
+		}
+		fmt.Printf("  Created: %s by %s\n", note.CreatedAt.Format("2006-01-02 15:04"), note.Author)
+		fmt.Println()
+	}
+}
+
+func runMemoryDecisionsList(limit int, status string) {
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	req := memory.ListDecisionsRequest{Limit: limit}
+	if status != "" {
+		req.Status = []string{status}
+	}
+
+	decisions := store.ListDecisions(req)
+
+	if len(decisions) == 0 {
+		fmt.Println("No decisions found.")
+		return
+	}
+
+	fmt.Printf("=== Architecture Decisions (%d) ===\n\n", len(decisions))
+	for _, dec := range decisions {
+		fmt.Printf("[%s] %s (%s)\n", dec.ID, dec.Title, dec.Status)
+		fmt.Printf("  Created: %s by %s\n", dec.CreatedAt.Format("2006-01-02"), dec.Author)
+		fmt.Println()
+	}
+}
+
+func runMemoryIssuesList(limit int, openOnly bool) {
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	req := memory.ListIssuesRequest{Limit: limit}
+	if openOnly {
+		req.Status = []string{"open", "investigating"}
+	}
+
+	issues := store.ListIssues(req)
+
+	if len(issues) == 0 {
+		fmt.Println("No issues found.")
+		return
+	}
+
+	fmt.Printf("=== Issues (%d) ===\n\n", len(issues))
+	for _, issue := range issues {
+		severity := issue.Severity
+		if severity == "critical" {
+			severity = "🔴 " + severity
+		} else if severity == "major" {
+			severity = "🟠 " + severity
+		} else {
+			severity = "🟡 " + severity
+		}
+
+		fmt.Printf("[%s] %s (%s) - %s\n", issue.ID, issue.Title, severity, issue.Status)
+		if issue.FilePath != "" {
+			fmt.Printf("  File: %s\n", issue.FilePath)
+		}
+		fmt.Println()
+	}
+}
+
+func runMemorySessions(limit int) {
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	sessions, err := store.GetSessionHistory(limit)
+	if err != nil {
+		slog.Error("failed to get session history", "error", err)
+		os.Exit(1)
+	}
+
+	if len(sessions) == 0 {
+		fmt.Println("No session history found.")
+		return
+	}
+
+	fmt.Printf("=== Session History (%d) ===\n\n", len(sessions))
+	for _, session := range sessions {
+		fmt.Printf("[%s] %s\n", session.EndedAt.Format("2006-01-02 15:04"), session.Agent)
+		fmt.Printf("  Summary: %s\n", session.Summary)
+		if len(session.NextSteps) > 0 {
+			fmt.Println("  Next steps:")
+			for _, step := range session.NextSteps {
+				fmt.Printf("    - %s\n", step)
+			}
+		}
+		fmt.Println()
+	}
+}
+
+func runMemoryContext() {
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	summary := store.GetContextSummary()
+	fmt.Println(summary)
+}
+
+func runMemoryExport() {
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	mem, err := store.Export()
+	if err != nil {
+		slog.Error("failed to export memory", "error", err)
+		os.Exit(1)
+	}
+
+	output, _ := json.MarshalIndent(mem, "", "  ")
+	fmt.Println(string(output))
+}
+
+func runMemoryClear(force bool) {
+	if !force {
+		fmt.Println("This will delete all notes, decisions, todos, and issues.")
+		fmt.Print("Are you sure? (y/N): ")
+
+		var response string
+		fmt.Scanln(&response)
+		if response != "y" && response != "Y" {
+			fmt.Println("Aborted.")
+			return
+		}
+	}
+
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	if err := store.Clear(); err != nil {
+		slog.Error("failed to clear memory", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Memory cleared.")
+}
+
+func runMemoryInstallHooks() {
+	cwd, _ := os.Getwd()
+
+	store, err := memory.NewStore(memory.StoreConfig{ProjectDir: cwd})
+	if err != nil {
+		slog.Error("failed to open memory store", "error", err)
+		os.Exit(1)
+	}
+
+	git := memory.NewGitIntegration(store)
+
+	if !git.IsGitRepo() {
+		fmt.Println("Not a git repository.")
+		os.Exit(1)
+	}
+
+	if err := git.InstallHooks(); err != nil {
+		slog.Error("failed to install hooks", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Git hooks installed:")
+	fmt.Println("  - post-merge: syncs memory after merge")
+	fmt.Println("  - post-checkout: updates context on branch switch")
+	fmt.Println("  - pre-commit: validates memory files")
 }
