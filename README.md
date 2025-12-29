@@ -1,7 +1,7 @@
 # mcp-codewizard
 
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 
 **Semantic code search and analysis for AI coding assistants.**
 
@@ -601,7 +601,13 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Business Source License 1.1 - see [LICENSE](LICENSE) for details.
+
+**Free for:** Personal use, development, testing, non-commercial projects.
+
+**Commercial use:** Requires a license. Contact: https://github.com/spetr/mcp-codewizard
+
+**Change Date:** 2028-12-29 (converts to Apache 2.0)
 
 ## Acknowledgments
 
