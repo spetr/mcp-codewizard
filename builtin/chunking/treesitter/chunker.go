@@ -2794,28 +2794,39 @@ func (c *Chunker) extractGoRefs(node *sitter.Node, file *types.SourceFile, conte
 	switch nodeType {
 	case "call_expression":
 		// Function/method calls
+		var calledFunc string
+		var shortName string
+
 		funcNode := c.findChildNodeByType(node, "identifier")
-		if funcNode == nil {
-			// Try selector_expression for method calls
+		if funcNode != nil {
+			// Simple function call: funcName()
+			calledFunc = content[funcNode.StartByte():funcNode.EndByte()]
+			shortName = calledFunc
+		} else {
+			// Try selector_expression for qualified calls: pkg.FuncName() or obj.Method()
 			selectorNode := c.findChildNodeByType(node, "selector_expression")
 			if selectorNode != nil {
-				funcNode = c.findChildNodeByType(selectorNode, "field_identifier")
+				// Get the full qualified name (e.g., "dart.GetLanguage")
+				calledFunc = content[selectorNode.StartByte():selectorNode.EndByte()]
+				// Also get just the function name for matching
+				fieldNode := c.findChildNodeByType(selectorNode, "field_identifier")
+				if fieldNode != nil {
+					shortName = content[fieldNode.StartByte():fieldNode.EndByte()]
+				}
 			}
 		}
-		if funcNode != nil {
-			calledFunc := content[funcNode.StartByte():funcNode.EndByte()]
-			if calledFunc != "" && currentFunc != "" {
-				ref := &types.Reference{
-					ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
-					FromSymbol: currentFunc,
-					ToSymbol:   calledFunc,
-					Kind:       types.RefKindCall,
-					FilePath:   file.Path,
-					Line:       line,
-					IsExternal: !localSymbols[calledFunc],
-				}
-				*refs = append(*refs, ref)
+
+		if calledFunc != "" && currentFunc != "" {
+			ref := &types.Reference{
+				ID:         fmt.Sprintf("%s:%d:call:%s", file.Path, line, calledFunc),
+				FromSymbol: currentFunc,
+				ToSymbol:   calledFunc, // Now stores "dart.GetLanguage" instead of just "GetLanguage"
+				Kind:       types.RefKindCall,
+				FilePath:   file.Path,
+				Line:       line,
+				IsExternal: !localSymbols[shortName] && !localSymbols[calledFunc],
 			}
+			*refs = append(*refs, ref)
 		}
 
 	case "type_identifier":

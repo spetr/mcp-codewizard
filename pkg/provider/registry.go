@@ -218,22 +218,3 @@ func RegisterVectorStore(name string, factory VectorStoreFactory) {
 	DefaultRegistry.RegisterVectorStore(name, factory)
 }
 
-// CreateEmbedding creates an embedding provider from the default registry.
-func CreateEmbedding(name string, config EmbeddingConfig) (EmbeddingProvider, error) {
-	return DefaultRegistry.CreateEmbedding(name, config)
-}
-
-// CreateReranker creates a reranker from the default registry.
-func CreateReranker(name string, config RerankerConfig) (Reranker, error) {
-	return DefaultRegistry.CreateReranker(name, config)
-}
-
-// CreateChunking creates a chunking strategy from the default registry.
-func CreateChunking(name string, config ChunkingConfig) (ChunkingStrategy, error) {
-	return DefaultRegistry.CreateChunking(name, config)
-}
-
-// CreateVectorStore creates a vector store from the default registry.
-func CreateVectorStore(name string) (VectorStore, error) {
-	return DefaultRegistry.CreateVectorStore(name)
-}

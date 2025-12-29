@@ -3,8 +3,6 @@ package index
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -616,17 +614,6 @@ func parseSize(s string) int64 {
 	return value * multiplier
 }
 
-// ComputeConfigHash computes a hash of configuration that affects indexing.
-func ComputeConfigHash(cfg *config.Config) string {
-	data := fmt.Sprintf("%s:%s:%s:%d",
-		cfg.Embedding.Provider,
-		cfg.Embedding.Model,
-		cfg.Chunking.Strategy,
-		cfg.Chunking.MaxChunkSize,
-	)
-	h := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(h[:])
-}
 
 // IndexWithGitHistory indexes the codebase and optionally includes git history.
 // This is a convenience method that combines code indexing with git history indexing.

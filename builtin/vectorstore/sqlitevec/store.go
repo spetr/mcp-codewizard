@@ -980,10 +980,27 @@ func (s *Store) StoreReferences(refs []*types.Reference) error {
 
 // GetCallers returns references TO a symbol.
 func (s *Store) GetCallers(symbolID string, limit int) ([]*types.Reference, error) {
-	rows, err := s.db.Query(`
+	// Symbol ID format is "filepath:name:line", but refs may store:
+	// - Just the name: "GetLanguage"
+	// - Qualified name: "dart.GetLanguage"
+	// - Full symbol ID (rare)
+	symbolName := extractSymbolName(symbolID)
+	qualifiedName := extractQualifiedName(symbolID)
+
+	// Build query with all possible matches
+	query := `
 		SELECT id, from_symbol, to_symbol, kind, file_path, line, is_external
-		FROM refs WHERE to_symbol = ? LIMIT ?
-	`, symbolID, limit)
+		FROM refs WHERE to_symbol = ? OR to_symbol = ?`
+	args := []interface{}{symbolID, symbolName}
+
+	if qualifiedName != "" {
+		query += ` OR to_symbol = ?`
+		args = append(args, qualifiedName)
+	}
+	query += ` LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -992,12 +1009,54 @@ func (s *Store) GetCallers(symbolID string, limit int) ([]*types.Reference, erro
 	return scanReferences(rows)
 }
 
+// extractSymbolName extracts the symbol name from a symbol ID.
+// Symbol ID format: "filepath:name:line" -> returns "name"
+func extractSymbolName(symbolID string) string {
+	parts := strings.Split(symbolID, ":")
+	if len(parts) >= 2 {
+		// Return the second-to-last part (name), handling cases like:
+		// "path/to/file.go:FuncName:123" -> "FuncName"
+		// "FuncName" -> "FuncName" (already just a name)
+		return parts[len(parts)-2]
+	}
+	return symbolID
+}
+
+// extractQualifiedName extracts a qualified name (pkg.Name) from a symbol ID.
+// Symbol ID format: "path/to/pkg/file.go:FuncName:123" -> returns "pkg.FuncName"
+// This helps match references like "dart.GetLanguage" to symbol "dart/binding.go:GetLanguage:16"
+func extractQualifiedName(symbolID string) string {
+	parts := strings.Split(symbolID, ":")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	filePath := strings.Join(parts[:len(parts)-2], ":")
+	funcName := parts[len(parts)-2]
+
+	// Extract package name from file path (last directory component)
+	// e.g., "path/to/dart/binding.go" -> "dart"
+	dir := filepath.Dir(filePath)
+	pkgName := filepath.Base(dir)
+
+	// Skip common non-package directories
+	if pkgName == "." || pkgName == "/" || pkgName == "" {
+		return ""
+	}
+
+	return pkgName + "." + funcName
+}
+
 // GetCallees returns references FROM a symbol.
 func (s *Store) GetCallees(symbolID string, limit int) ([]*types.Reference, error) {
+	// Symbol ID format is "filepath:name:line", but refs store only "name" in from_symbol.
+	// Extract the symbol name to match against refs.
+	symbolName := extractSymbolName(symbolID)
+
 	rows, err := s.db.Query(`
 		SELECT id, from_symbol, to_symbol, kind, file_path, line, is_external
-		FROM refs WHERE from_symbol = ? LIMIT ?
-	`, symbolID, limit)
+		FROM refs WHERE from_symbol = ? OR from_symbol = ? LIMIT ?
+	`, symbolID, symbolName, limit)
 	if err != nil {
 		return nil, err
 	}
