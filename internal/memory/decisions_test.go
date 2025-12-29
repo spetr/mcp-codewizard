@@ -217,13 +217,13 @@ func TestListDecisions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store.AddDecision(AddDecisionRequest{
+	_, _ = store.AddDecision(AddDecisionRequest{
 		Title:    "Decision 1",
 		Context:  "Context 1",
 		Decision: "Decision 1",
 	})
 
-	store.AddDecision(AddDecisionRequest{
+	_, _ = store.AddDecision(AddDecisionRequest{
 		Title:    "Decision 2",
 		Context:  "Context 2",
 		Decision: "Decision 2",

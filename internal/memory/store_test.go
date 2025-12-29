@@ -90,8 +90,8 @@ func TestStoreClear(t *testing.T) {
 	}
 
 	// Add some data
-	store.AddNote(AddNoteRequest{Title: "N1", Content: "C1"})
-	store.AddNote(AddNoteRequest{Title: "N2", Content: "C2"})
+	_, _ = store.AddNote(AddNoteRequest{Title: "N1", Content: "C1"})
+	_, _ = store.AddNote(AddNoteRequest{Title: "N2", Content: "C2"})
 
 	if count := store.CountNotes(); count != 2 {
 		t.Errorf("CountNotes before clear = %d, want 2", count)
@@ -120,8 +120,8 @@ func TestStoreExportImport(t *testing.T) {
 	}
 
 	// Add data
-	store.AddNote(AddNoteRequest{Title: "Note 1", Content: "Content 1"})
-	store.AddDecision(AddDecisionRequest{
+	_, _ = store.AddNote(AddNoteRequest{Title: "Note 1", Content: "Content 1"})
+	_, _ = store.AddDecision(AddDecisionRequest{
 		Title:    "Decision 1",
 		Context:  "Context 1",
 		Decision: "Decision 1",
@@ -141,7 +141,7 @@ func TestStoreExportImport(t *testing.T) {
 	}
 
 	// Clear and import
-	store.Clear()
+	_ = store.Clear()
 
 	if err := store.Import(exported); err != nil {
 		t.Fatalf("Import failed: %v", err)

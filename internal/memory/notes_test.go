@@ -266,8 +266,8 @@ func TestCountNotes(t *testing.T) {
 		t.Errorf("CountNotes = %d, want 0", count)
 	}
 
-	store.AddNote(AddNoteRequest{Title: "N1", Content: "C1"})
-	store.AddNote(AddNoteRequest{Title: "N2", Content: "C2"})
+	_, _ = store.AddNote(AddNoteRequest{Title: "N1", Content: "C1"})
+	_, _ = store.AddNote(AddNoteRequest{Title: "N2", Content: "C2"})
 
 	if count := store.CountNotes(); count != 2 {
 		t.Errorf("CountNotes = %d, want 2", count)

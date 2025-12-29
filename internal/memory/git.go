@@ -333,9 +333,9 @@ func (g *GitIntegration) UninstallHooks() error {
 		newContent := strings.TrimSpace(strings.Join(newLines, "\n"))
 		if newContent == "" || newContent == "#!/bin/bash" {
 			// Remove empty hook
-			os.Remove(hookPath)
+			_ = os.Remove(hookPath)
 		} else {
-			os.WriteFile(hookPath, []byte(newContent+"\n"), 0755)
+			_ = os.WriteFile(hookPath, []byte(newContent+"\n"), 0755)
 		}
 	}
 

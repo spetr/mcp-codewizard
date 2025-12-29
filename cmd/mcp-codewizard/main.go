@@ -1277,7 +1277,7 @@ func runMemoryClear(force bool) {
 		fmt.Print("Are you sure? (y/N): ")
 
 		var response string
-		fmt.Scanln(&response)
+		_, _ = fmt.Scanln(&response)
 		if response != "y" && response != "Y" {
 			fmt.Println("Aborted.")
 			return
