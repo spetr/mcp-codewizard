@@ -35,7 +35,7 @@ import (
 )
 
 var (
-	version   = "0.1.0"
+	version   = "0.2.0"
 	cfgFile   string
 	logLevel  string
 	logFormat string
@@ -312,6 +312,63 @@ var memoryInstallHooksCmd = &cobra.Command{
 	},
 }
 
+// Register commands for AI CLI tools
+var registerCmd = &cobra.Command{
+	Use:   "register",
+	Short: "Register mcp-codewizard with AI CLI tools",
+	Long: `Register mcp-codewizard as an MCP server with various AI CLI tools.
+
+Supported tools:
+  claude-code  - Claude Code (Anthropic)
+  gemini       - Gemini CLI (Google)
+  codex        - Codex CLI (OpenAI)
+
+Examples:
+  mcp-codewizard register claude-code
+  mcp-codewizard register gemini
+  mcp-codewizard register codex
+  mcp-codewizard register --all`,
+}
+
+var registerClaudeCodeCmd = &cobra.Command{
+	Use:   "claude-code",
+	Short: "Register with Claude Code",
+	Long:  `Register mcp-codewizard as an MCP server in Claude Code configuration.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		global, _ := cmd.Flags().GetBool("global")
+		runRegisterClaudeCode(global)
+	},
+}
+
+var registerGeminiCmd = &cobra.Command{
+	Use:   "gemini",
+	Short: "Register with Gemini CLI",
+	Long:  `Register mcp-codewizard as an MCP server in Gemini CLI configuration.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		global, _ := cmd.Flags().GetBool("global")
+		runRegisterGemini(global)
+	},
+}
+
+var registerCodexCmd = &cobra.Command{
+	Use:   "codex",
+	Short: "Register with Codex CLI",
+	Long:  `Register mcp-codewizard as an MCP server in Codex CLI (OpenAI) configuration.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		global, _ := cmd.Flags().GetBool("global")
+		runRegisterCodex(global)
+	},
+}
+
+var registerAllCmd = &cobra.Command{
+	Use:   "all",
+	Short: "Register with all supported AI CLI tools",
+	Run: func(cmd *cobra.Command, args []string) {
+		global, _ := cmd.Flags().GetBool("global")
+		runRegisterAll(global)
+	},
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default: .mcp-codewizard/config.yaml)")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
@@ -364,6 +421,17 @@ func init() {
 	memoryCmd.AddCommand(memoryClearCmd)
 	memoryCmd.AddCommand(memoryInstallHooksCmd)
 
+	// Register command flags
+	registerClaudeCodeCmd.Flags().BoolP("global", "g", false, "register globally (user-level config)")
+	registerGeminiCmd.Flags().BoolP("global", "g", false, "register globally (user-level config)")
+	registerCodexCmd.Flags().BoolP("global", "g", false, "register globally (user-level config)")
+	registerAllCmd.Flags().BoolP("global", "g", false, "register globally (user-level config)")
+
+	registerCmd.AddCommand(registerClaudeCodeCmd)
+	registerCmd.AddCommand(registerGeminiCmd)
+	registerCmd.AddCommand(registerCodexCmd)
+	registerCmd.AddCommand(registerAllCmd)
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(indexCmd)
@@ -375,6 +443,7 @@ func init() {
 	rootCmd.AddCommand(detectCmd)
 	rootCmd.AddCommand(pluginCmd)
 	rootCmd.AddCommand(memoryCmd)
+	rootCmd.AddCommand(registerCmd)
 }
 
 func setupLogging() {
@@ -1565,4 +1634,301 @@ func runMemoryInstallHooks() {
 	fmt.Println("  - post-merge: syncs memory after merge")
 	fmt.Println("  - post-checkout: updates context on branch switch")
 	fmt.Println("  - pre-commit: validates memory files")
+}
+
+// Register command implementations
+
+// MCPServerConfig represents the MCP server configuration in JSON configs
+type MCPServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+// ClaudeCodeConfig represents Claude Code's MCP config structure
+type ClaudeCodeConfig struct {
+	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+}
+
+// GeminiConfig represents Gemini CLI's MCP config structure
+type GeminiConfig struct {
+	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+}
+
+// CodexConfig represents Codex CLI's MCP config structure
+type CodexConfig struct {
+	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+}
+
+func getBinaryPath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(exe)
+}
+
+func getClaudeCodeConfigPath(global bool) string {
+	if global {
+		home, _ := os.UserHomeDir()
+		// Claude Code uses ~/.claude.json for user config
+		return filepath.Join(home, ".claude.json")
+	}
+	// Project-level config
+	cwd, _ := os.Getwd()
+	return filepath.Join(cwd, ".claude.json")
+}
+
+func getGeminiConfigPath(global bool) string {
+	if global {
+		home, _ := os.UserHomeDir()
+		// Gemini CLI uses ~/.gemini/settings.json
+		return filepath.Join(home, ".gemini", "settings.json")
+	}
+	cwd, _ := os.Getwd()
+	return filepath.Join(cwd, ".gemini.json")
+}
+
+func getCodexConfigPath(global bool) string {
+	if global {
+		home, _ := os.UserHomeDir()
+		// Codex CLI uses ~/.codex/config.json
+		return filepath.Join(home, ".codex", "config.json")
+	}
+	cwd, _ := os.Getwd()
+	return filepath.Join(cwd, ".codex.json")
+}
+
+func loadOrCreateJSONConfig(path string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]interface{}), nil
+		}
+		return nil, err
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+	}
+	return config, nil
+}
+
+func saveJSONConfig(path string, config map[string]interface{}) error {
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+func runRegisterClaudeCode(global bool) {
+	binaryPath, err := getBinaryPath()
+	if err != nil {
+		slog.Error("failed to get binary path", "error", err)
+		os.Exit(1)
+	}
+
+	configPath := getClaudeCodeConfigPath(global)
+	config, err := loadOrCreateJSONConfig(configPath)
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Get or create mcpServers
+	mcpServers, ok := config["mcpServers"].(map[string]interface{})
+	if !ok {
+		mcpServers = make(map[string]interface{})
+	}
+
+	// Add mcp-codewizard server
+	mcpServers["mcp-codewizard"] = map[string]interface{}{
+		"command": binaryPath,
+		"args":    []string{"serve", "--stdio"},
+	}
+
+	config["mcpServers"] = mcpServers
+
+	if err := saveJSONConfig(configPath, config); err != nil {
+		slog.Error("failed to save config", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Registered mcp-codewizard with Claude Code\n")
+	fmt.Printf("Config: %s\n", configPath)
+	fmt.Printf("\nRestart Claude Code to apply changes.\n")
+}
+
+func runRegisterGemini(global bool) {
+	binaryPath, err := getBinaryPath()
+	if err != nil {
+		slog.Error("failed to get binary path", "error", err)
+		os.Exit(1)
+	}
+
+	configPath := getGeminiConfigPath(global)
+	config, err := loadOrCreateJSONConfig(configPath)
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Get or create mcpServers
+	mcpServers, ok := config["mcpServers"].(map[string]interface{})
+	if !ok {
+		mcpServers = make(map[string]interface{})
+	}
+
+	// Add mcp-codewizard server
+	mcpServers["mcp-codewizard"] = map[string]interface{}{
+		"command": binaryPath,
+		"args":    []string{"serve", "--stdio"},
+	}
+
+	config["mcpServers"] = mcpServers
+
+	if err := saveJSONConfig(configPath, config); err != nil {
+		slog.Error("failed to save config", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Registered mcp-codewizard with Gemini CLI\n")
+	fmt.Printf("Config: %s\n", configPath)
+	fmt.Printf("\nRestart Gemini CLI to apply changes.\n")
+}
+
+func runRegisterCodex(global bool) {
+	binaryPath, err := getBinaryPath()
+	if err != nil {
+		slog.Error("failed to get binary path", "error", err)
+		os.Exit(1)
+	}
+
+	configPath := getCodexConfigPath(global)
+	config, err := loadOrCreateJSONConfig(configPath)
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	// Get or create mcpServers
+	mcpServers, ok := config["mcpServers"].(map[string]interface{})
+	if !ok {
+		mcpServers = make(map[string]interface{})
+	}
+
+	// Add mcp-codewizard server
+	mcpServers["mcp-codewizard"] = map[string]interface{}{
+		"command": binaryPath,
+		"args":    []string{"serve", "--stdio"},
+	}
+
+	config["mcpServers"] = mcpServers
+
+	if err := saveJSONConfig(configPath, config); err != nil {
+		slog.Error("failed to save config", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Registered mcp-codewizard with Codex CLI\n")
+	fmt.Printf("Config: %s\n", configPath)
+	fmt.Printf("\nRestart Codex CLI to apply changes.\n")
+}
+
+func runRegisterAll(global bool) {
+	fmt.Println("Registering mcp-codewizard with all supported AI CLI tools...")
+	fmt.Println()
+
+	// Try Claude Code
+	fmt.Print("Claude Code: ")
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("failed (%v)\n", r)
+			}
+		}()
+		binaryPath, _ := getBinaryPath()
+		configPath := getClaudeCodeConfigPath(global)
+		config, _ := loadOrCreateJSONConfig(configPath)
+		mcpServers, ok := config["mcpServers"].(map[string]interface{})
+		if !ok {
+			mcpServers = make(map[string]interface{})
+		}
+		mcpServers["mcp-codewizard"] = map[string]interface{}{
+			"command": binaryPath,
+			"args":    []string{"serve", "--stdio"},
+		}
+		config["mcpServers"] = mcpServers
+		if err := saveJSONConfig(configPath, config); err != nil {
+			fmt.Printf("failed (%v)\n", err)
+			return
+		}
+		fmt.Printf("OK (%s)\n", configPath)
+	}()
+
+	// Try Gemini
+	fmt.Print("Gemini CLI:  ")
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("failed (%v)\n", r)
+			}
+		}()
+		binaryPath, _ := getBinaryPath()
+		configPath := getGeminiConfigPath(global)
+		config, _ := loadOrCreateJSONConfig(configPath)
+		mcpServers, ok := config["mcpServers"].(map[string]interface{})
+		if !ok {
+			mcpServers = make(map[string]interface{})
+		}
+		mcpServers["mcp-codewizard"] = map[string]interface{}{
+			"command": binaryPath,
+			"args":    []string{"serve", "--stdio"},
+		}
+		config["mcpServers"] = mcpServers
+		if err := saveJSONConfig(configPath, config); err != nil {
+			fmt.Printf("failed (%v)\n", err)
+			return
+		}
+		fmt.Printf("OK (%s)\n", configPath)
+	}()
+
+	// Try Codex
+	fmt.Print("Codex CLI:   ")
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("failed (%v)\n", r)
+			}
+		}()
+		binaryPath, _ := getBinaryPath()
+		configPath := getCodexConfigPath(global)
+		config, _ := loadOrCreateJSONConfig(configPath)
+		mcpServers, ok := config["mcpServers"].(map[string]interface{})
+		if !ok {
+			mcpServers = make(map[string]interface{})
+		}
+		mcpServers["mcp-codewizard"] = map[string]interface{}{
+			"command": binaryPath,
+			"args":    []string{"serve", "--stdio"},
+		}
+		config["mcpServers"] = mcpServers
+		if err := saveJSONConfig(configPath, config); err != nil {
+			fmt.Printf("failed (%v)\n", err)
+			return
+		}
+		fmt.Printf("OK (%s)\n", configPath)
+	}()
+
+	fmt.Println()
+	fmt.Println("Restart the CLI tools to apply changes.")
 }

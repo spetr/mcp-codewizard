@@ -80,21 +80,43 @@ mcp-codewizard init
 mcp-codewizard init --preset recommended
 ```
 
-### 4. Configure Your AI Assistant
+### 4. Register with Your AI Assistant
 
-Add to your Claude Code MCP configuration (`~/.claude/claude_desktop_config.json`):
+```bash
+# Claude Code
+mcp-codewizard register claude-code
+
+# Gemini CLI
+mcp-codewizard register gemini
+
+# Codex CLI (OpenAI)
+mcp-codewizard register codex
+
+# All tools at once
+mcp-codewizard register all
+
+# Global (user-level) registration
+mcp-codewizard register claude-code -g
+```
+
+Restart your AI assistant to apply changes.
+
+<details>
+<summary>Manual configuration (alternative)</summary>
+
+Add to your Claude Code config (`~/.claude.json`):
 
 ```json
 {
   "mcpServers": {
-    "codeindex": {
+    "mcp-codewizard": {
       "command": "/path/to/mcp-codewizard",
-      "args": ["serve", "--stdio"],
-      "cwd": "/path/to/your/project"
+      "args": ["serve", "--stdio"]
     }
   }
 }
 ```
+</details>
 
 ## Installation
 
