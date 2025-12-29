@@ -34,6 +34,10 @@ type Server struct {
 	chunker    provider.ChunkingStrategy
 	reranker   provider.Reranker
 	search     *search.Engine
+
+	// File watcher for automatic re-indexing
+	watcher       *index.Watcher
+	watcherCancel context.CancelFunc
 }
 
 // Config contains server configuration.
@@ -1141,8 +1145,69 @@ func (s *Server) handleInitProject(ctx context.Context, req mcp.CallToolRequest)
 }
 
 // ServeStdio starts the MCP server using stdio transport.
+// It also starts the file watcher for automatic re-indexing.
 func (s *Server) ServeStdio() error {
+	// Start file watcher in background
+	if err := s.startWatcher(); err != nil {
+		slog.Warn("failed to start file watcher", "error", err)
+		// Continue without watcher - not fatal
+	}
+
+	// Ensure cleanup on exit
+	defer s.stopWatcher()
+
 	return server.ServeStdio(s.mcpServer)
+}
+
+// startWatcher starts the file watcher for automatic re-indexing.
+func (s *Server) startWatcher() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.watcherCancel = cancel
+
+	watcher, err := index.NewWatcher(index.WatcherConfig{
+		ProjectDir:   s.projectDir,
+		Config:       s.config,
+		Store:        s.store,
+		Embedding:    s.embedding,
+		Chunker:      s.chunker,
+		DebounceTime: 500 * time.Millisecond,
+		OnProgress: func(p types.IndexProgress) {
+			slog.Debug("watch index progress",
+				"phase", p.Phase,
+				"processed", p.ProcessedFiles,
+				"total", p.TotalFiles,
+			)
+		},
+	})
+	if err != nil {
+		cancel()
+		return fmt.Errorf("failed to create watcher: %w", err)
+	}
+
+	s.watcher = watcher
+
+	// Run watcher in background
+	go func() {
+		slog.Info("file watcher started", "dir", s.projectDir)
+		if err := watcher.Watch(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("watcher error", "error", err)
+		}
+		slog.Info("file watcher stopped")
+	}()
+
+	return nil
+}
+
+// stopWatcher stops the file watcher.
+func (s *Server) stopWatcher() {
+	if s.watcherCancel != nil {
+		s.watcherCancel()
+		s.watcherCancel = nil
+	}
+	if s.watcher != nil {
+		s.watcher.Close()
+		s.watcher = nil
+	}
 }
 
 // formatBytes formats bytes to human readable string.
