@@ -27,13 +27,13 @@ jobs:
             arch: amd64
             runner: ubuntu-latest
             ext: ''
-            cc: gcc
+            cc: clang
           # Linux ARM64
           - os: linux
             arch: arm64
             runner: ubuntu-24.04-arm
             ext: ''
-            cc: gcc
+            cc: clang
           # macOS AMD64 (cross-compile from ARM64)
           - os: darwin
             arch: amd64
@@ -51,7 +51,13 @@ jobs:
             arch: amd64
             runner: windows-latest
             ext: '.exe'
-            cc: gcc
+            cc: clang
+          # Windows ARM64 (cross-compile from AMD64)
+          - os: windows
+            arch: arm64
+            runner: windows-latest
+            ext: '.exe'
+            cc: clang
 
     steps:
       - name: Checkout code
@@ -67,16 +73,28 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y clang
 
-      - name: Install dependencies (Windows)
-        if: matrix.os == 'windows'
+      - name: Install dependencies (Windows AMD64)
+        if: matrix.os == 'windows' && matrix.arch == 'amd64'
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-sqlite3
+          install: mingw-w64-x86_64-clang mingw-w64-x86_64-make mingw-w64-x86_64-sqlite3
           path-type: inherit
+
+      - name: Install dependencies (Windows ARM64)
+        if: matrix.os == 'windows' && matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          # Download llvm-mingw for ARM64 cross-compilation
+          $llvmVersion = "20231128"
+          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$llvmVersion/llvm-mingw-$llvmVersion-ucrt-x86_64.zip"
+          Invoke-WebRequest -Uri $url -OutFile llvm-mingw.zip
+          Expand-Archive llvm-mingw.zip -DestinationPath C:\
+          $llvmPath = (Get-ChildItem C:\llvm-mingw-*).FullName
+          echo "$llvmPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Get version
         id: version
@@ -102,8 +120,8 @@ jobs:
             -o mcp-codewizard${{ matrix.ext }} \
             ./cmd/mcp-codewizard
 
-      - name: Build binary (Windows)
-        if: matrix.os == 'windows'
+      - name: Build binary (Windows AMD64)
+        if: matrix.os == 'windows' && matrix.arch == 'amd64'
         shell: msys2 {0}
         timeout-minutes: 15
         run: |
@@ -111,6 +129,20 @@ jobs:
           export PATH="/mingw64/bin:$PATH"
           go build -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
             -o mcp-codewizard.exe \
+            ./cmd/mcp-codewizard
+
+      - name: Build binary (Windows ARM64)
+        if: matrix.os == 'windows' && matrix.arch == 'arm64'
+        shell: pwsh
+        timeout-minutes: 15
+        env:
+          CGO_ENABLED: '1'
+          GOOS: windows
+          GOARCH: arm64
+          CC: aarch64-w64-mingw32-clang
+        run: |
+          go build -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" `
+            -o mcp-codewizard.exe `
             ./cmd/mcp-codewizard
 
       - name: Create archive (Unix)
