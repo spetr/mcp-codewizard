@@ -307,3 +307,25 @@ func (c *Config) Hash() string {
 	h := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(h[:])
 }
+
+// Copy creates a deep copy of the config.
+// Used for runtime modifications without affecting the original.
+func (c *Config) Copy() *Config {
+	copy := *c
+
+	// Deep copy slices
+	if c.Index.Include != nil {
+		copy.Index.Include = make([]string, len(c.Index.Include))
+		for i, v := range c.Index.Include {
+			copy.Index.Include[i] = v
+		}
+	}
+	if c.Index.Exclude != nil {
+		copy.Index.Exclude = make([]string, len(c.Index.Exclude))
+		for i, v := range c.Index.Exclude {
+			copy.Index.Exclude[i] = v
+		}
+	}
+
+	return &copy
+}

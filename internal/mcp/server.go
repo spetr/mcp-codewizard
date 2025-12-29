@@ -87,6 +87,8 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) {
 	mcpServer.AddTool(mcp.NewTool("index_codebase",
 		mcp.WithDescription("Index the codebase for semantic search"),
 		mcp.WithBoolean("force", mcp.Description("Force reindex all files")),
+		mcp.WithArray("ignore_patterns", mcp.Description("Additional patterns to exclude (e.g., ['**/test/**', '*.spec.ts'])")),
+		mcp.WithArray("custom_extensions", mcp.Description("Additional file extensions to include (e.g., ['.vue', '.svelte', '.astro'])")),
 	), s.handleIndexCodebase)
 
 	// search_code - Semantic code search
@@ -405,13 +407,39 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) {
 
 func (s *Server) handleIndexCodebase(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	force := req.GetBool("force", false)
+	ignorePatterns := req.GetStringSlice("ignore_patterns", nil)
+	customExtensions := req.GetStringSlice("custom_extensions", nil)
 
-	slog.Info("starting indexing", "force", force)
+	slog.Info("starting indexing", "force", force, "ignore_patterns", ignorePatterns, "custom_extensions", customExtensions)
+
+	// Create a copy of config with runtime overrides
+	indexConfig := s.config
+	if len(ignorePatterns) > 0 || len(customExtensions) > 0 {
+		// Deep copy the config to avoid modifying the original
+		indexConfig = s.config.Copy()
+
+		// Add ignore patterns to exclude list
+		if len(ignorePatterns) > 0 {
+			indexConfig.Index.Exclude = append(indexConfig.Index.Exclude, ignorePatterns...)
+		}
+
+		// Add custom extensions as include patterns
+		if len(customExtensions) > 0 {
+			for _, ext := range customExtensions {
+				// Normalize extension (ensure it starts with .)
+				if !strings.HasPrefix(ext, ".") {
+					ext = "." + ext
+				}
+				// Add glob pattern for this extension
+				indexConfig.Index.Include = append(indexConfig.Index.Include, "**/*"+ext)
+			}
+		}
+	}
 
 	// Create indexer
 	indexer := index.New(index.Config{
 		ProjectDir: s.projectDir,
-		Config:     s.config,
+		Config:     indexConfig,
 		Store:      s.store,
 		Embedding:  s.embedding,
 		Chunker:    s.chunker,
