@@ -69,7 +69,8 @@ func (s *Store) Init(path string) error {
 	}
 
 	// Open database with sqlite-vec extension
-	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_synchronous=NORMAL")
+	// WAL mode for concurrent reads, busy_timeout to wait for locks instead of failing immediately
+	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000")
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
