@@ -1,6 +1,8 @@
 module github.com/spetr/mcp-codewizard
 
-go 1.25
+go 1.24.0
+
+toolchain go1.25.5
 
 require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
