@@ -217,8 +217,15 @@ func (c *Chunker) Close() error {
 // DetectLanguage detects language from file extension.
 func DetectLanguage(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
+	base := strings.ToLower(filepath.Base(path))
+
+	// Handle special filenames first
+	if base == "dockerfile" {
+		return "dockerfile"
+	}
 
 	switch ext {
+	// Core programming languages
 	case ".go":
 		return "go"
 	case ".py":
@@ -251,24 +258,73 @@ func DetectLanguage(path string) string {
 		return "kotlin"
 	case ".scala", ".sc":
 		return "scala"
-	case ".hs":
-		return "haskell"
-	case ".ml", ".mli":
-		return "ocaml"
-	case ".ex", ".exs":
-		return "elixir"
-	case ".erl":
-		return "erlang"
+	case ".cs":
+		return "csharp"
 	case ".lua":
 		return "lua"
-	case ".pl", ".pm":
-		return "perl"
-	case ".r", ".R":
-		return "r"
-	case ".jl":
-		return "julia"
+	case ".sql":
+		return "sql"
 	case ".dart":
 		return "dart"
+	case ".r", ".R":
+		return "r"
+	case ".ex", ".exs":
+		return "elixir"
+	case ".elm":
+		return "elm"
+	case ".groovy", ".gradle":
+		return "groovy"
+	case ".ml", ".mli":
+		return "ocaml"
+
+	// Markup and data formats
+	case ".html", ".htm", ".xhtml":
+		return "html"
+	case ".css":
+		return "css"
+	case ".svelte":
+		return "svelte"
+	case ".md", ".markdown":
+		return "markdown"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".toml":
+		return "toml"
+	case ".proto":
+		return "proto"
+	case ".cue":
+		return "cue"
+
+	// Shell and scripting
+	case ".sh", ".bash":
+		return "bash"
+	case ".ps1", ".psm1", ".psd1":
+		return "powershell"
+
+	// Infrastructure
+	case ".tf", ".hcl":
+		return "hcl"
+
+	// Pascal family
+	case ".pas", ".pp", ".dpr":
+		return "pascal"
+
+	// Visual Basic
+	case ".vb":
+		return "vbnet"
+
+	// Functional languages
+	case ".hs":
+		return "haskell"
+	case ".erl":
+		return "erlang"
+	case ".pl", ".pm":
+		return "perl"
+	case ".jl":
+		return "julia"
+
 	default:
 		return "text"
 	}
