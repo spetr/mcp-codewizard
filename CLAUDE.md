@@ -241,7 +241,7 @@ Definitions in `pkg/types/`:
 - sqlite-vec (vector DB)
 - go-tree-sitter (AST parsing)
 
-Build: `CGO_ENABLED=1 go build`
+Build: `CGO_ENABLED=1 go build -tags "fts5"`
 
 ## Conventions
 
