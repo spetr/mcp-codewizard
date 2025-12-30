@@ -531,8 +531,34 @@ func (s *SummaryAnalyzer) extractFunctions(lines []string, language string) []Fu
 					currentFunc.Complexity = estimateComplexity(lines[currentFunc.StartLine-1 : currentFunc.EndLine])
 					functions = append(functions, *currentFunc)
 					currentFunc = nil
-					// Don't continue - check if this line starts a new function
-					i--
+					// Check if this line starts a new function
+					if matches := funcPattern.FindStringSubmatch(trimmed); matches != nil {
+						name := ""
+						params := ""
+						for j, m := range matches[1:] {
+							if m != "" {
+								if name == "" {
+									name = m
+								} else if j > 0 {
+									params = m
+								}
+							}
+						}
+						if name != "" {
+							paramCount := 0
+							if params != "" {
+								paramCount = len(strings.Split(params, ","))
+							}
+							currentFunc = &FunctionInfo{
+								Name:       name,
+								StartLine:  lineNum,
+								Signature:  trimmed,
+								IsExported: isExported(name, language),
+								Parameters: paramCount,
+							}
+							braceCount = 1
+						}
+					}
 					continue
 				}
 			} else {
