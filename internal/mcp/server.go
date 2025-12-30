@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -578,6 +579,11 @@ func (s *Server) handleGetChunk(ctx context.Context, req mcp.CallToolRequest) (*
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get chunk: %v", err)), nil
 	}
 
+	// If not found, try to interpret as symbol ID and find containing chunk
+	if chunk == nil {
+		chunk = s.findChunkBySymbolID(chunkID)
+	}
+
 	if chunk == nil {
 		return mcp.NewToolResultError("chunk not found"), nil
 	}
@@ -600,6 +606,47 @@ func (s *Server) handleGetChunk(ctx context.Context, req mcp.CallToolRequest) (*
 
 	jsonResult, _ := json.MarshalIndent(result, "", "  ")
 	return mcp.NewToolResultText(string(jsonResult)), nil
+}
+
+// findChunkBySymbolID tries to find a chunk using a symbol ID format (file:name:line).
+// This allows get_chunk to work with symbol IDs returned by get_symbols.
+func (s *Server) findChunkBySymbolID(symbolID string) *types.Chunk {
+	// Symbol ID format: "filepath:name:line"
+	parts := strings.Split(symbolID, ":")
+	if len(parts) < 3 {
+		return nil
+	}
+
+	// Extract file path (may contain colons on Windows)
+	lineStr := parts[len(parts)-1]
+	name := parts[len(parts)-2]
+	filePath := strings.Join(parts[:len(parts)-2], ":")
+
+	line, err := strconv.Atoi(lineStr)
+	if err != nil {
+		return nil
+	}
+
+	// Search for chunks with this name using BM25
+	searchReq := &types.SearchRequest{
+		Query: name,
+		Limit: 50,
+		Mode:  types.SearchModeBM25,
+	}
+	results, err := s.search.Search(context.Background(), searchReq)
+	if err != nil {
+		return nil
+	}
+
+	// Find the best matching chunk
+	for _, r := range results {
+		if r.Chunk.FilePath == filePath &&
+			r.Chunk.StartLine <= line && r.Chunk.EndLine >= line {
+			return r.Chunk
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) handleGetStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

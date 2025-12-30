@@ -111,6 +111,10 @@ func (s *SummaryAnalyzer) AnalyzeFile(filePath string) (*FileSummary, error) {
 	}
 
 	lines := strings.Split(string(content), "\n")
+	// Remove trailing empty line if file ends with newline
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 	language := detectLanguageFromPath(filePath)
 
 	summary := &FileSummary{

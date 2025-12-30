@@ -983,7 +983,7 @@ func (s *Store) StoreReferences(refs []*types.Reference) error {
 func (s *Store) GetCallers(symbolID string, limit int) ([]*types.Reference, error) {
 	// Symbol ID format is "filepath:name:line", but refs may store:
 	// - Just the name: "GetLanguage"
-	// - Qualified name: "dart.GetLanguage"
+	// - Qualified name: "dart.GetLanguage", "simple.DetectLanguage"
 	// - Full symbol ID (rare)
 	symbolName := extractSymbolName(symbolID)
 	qualifiedName := extractQualifiedName(symbolID)
@@ -998,6 +998,11 @@ func (s *Store) GetCallers(symbolID string, limit int) ([]*types.Reference, erro
 		query += ` OR to_symbol = ?`
 		args = append(args, qualifiedName)
 	}
+
+	// Also match qualified references ending with .symbolName (e.g., "simple.DetectLanguage")
+	query += ` OR to_symbol LIKE ?`
+	args = append(args, "%."+symbolName)
+
 	query += ` LIMIT ?`
 	args = append(args, limit)
 

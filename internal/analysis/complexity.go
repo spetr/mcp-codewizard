@@ -61,6 +61,10 @@ func (c *ComplexityAnalyzer) AnalyzeFile(filePath string) (*FileComplexity, erro
 
 	language := detectLanguageFromPath(filePath)
 	lines := strings.Split(string(content), "\n")
+	// Remove trailing empty line if file ends with newline
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 
 	result := &FileComplexity{
 		FilePath: filePath,
@@ -100,6 +104,10 @@ func (c *ComplexityAnalyzer) AnalyzeRange(filePath string, startLine, endLine in
 
 	language := detectLanguageFromPath(filePath)
 	allLines := strings.Split(string(content), "\n")
+	// Remove trailing empty line if file ends with newline
+	if len(allLines) > 0 && allLines[len(allLines)-1] == "" {
+		allLines = allLines[:len(allLines)-1]
+	}
 
 	// Adjust bounds
 	if startLine < 1 {
