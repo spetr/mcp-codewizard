@@ -74,6 +74,8 @@ mcp-codewizard/
 | `get_import_graph` | Dependency graph |
 | `get_complexity` | Complexity metrics |
 | `get_dead_code` | Unused code |
+| `fuzzy_search` | Fuzzy search for symbols/files (handles typos, camelCase) |
+| `get_file_summary` | Comprehensive file summary (imports, exports, functions, complexity) |
 
 ### Git History
 | Tool | Description |
@@ -187,6 +189,9 @@ mcp-codewizard analysis refactoring           # suggest refactoring opportunitie
 mcp-codewizard analysis complexity [file]     # complexity metrics
 mcp-codewizard analysis entry-points          # find entry points (--type, --limit)
 mcp-codewizard analysis imports [file]        # import/dependency graph
+
+mcp-codewizard fuzzy <query>                  # fuzzy search (--kind, --type: symbols|files)
+mcp-codewizard summary <file>                 # file summary (--quick for line counts only)
 ```
 
 ### Git History Commands

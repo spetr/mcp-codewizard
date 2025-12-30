@@ -711,6 +711,28 @@ var todoDeleteCmd = &cobra.Command{
 	},
 }
 
+var fuzzyCmd = &cobra.Command{
+	Use:   "fuzzy <query>",
+	Short: "Fuzzy search for symbols or files",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		kind, _ := cmd.Flags().GetString("kind")
+		searchType, _ := cmd.Flags().GetString("type")
+		limit, _ := cmd.Flags().GetInt("limit")
+		runFuzzySearch(args[0], kind, searchType, limit)
+	},
+}
+
+var summaryCmd = &cobra.Command{
+	Use:   "summary <file>",
+	Short: "Get file summary (imports, exports, functions, complexity)",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		quick, _ := cmd.Flags().GetBool("quick")
+		runFileSummary(args[0], quick)
+	},
+}
+
 var todoStatsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Show todo statistics",
@@ -874,6 +896,14 @@ func init() {
 	todoCmd.AddCommand(todoDeleteCmd)
 	todoCmd.AddCommand(todoStatsCmd)
 
+	// Fuzzy search flags
+	fuzzyCmd.Flags().StringP("kind", "k", "", "symbol kind filter (function, type, method, variable)")
+	fuzzyCmd.Flags().StringP("type", "t", "symbols", "search type (symbols, files)")
+	fuzzyCmd.Flags().IntP("limit", "l", 20, "maximum results")
+
+	// Summary flags
+	summaryCmd.Flags().BoolP("quick", "q", false, "quick summary (only line counts)")
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(indexCmd)
@@ -893,6 +923,8 @@ func init() {
 	rootCmd.AddCommand(analysisCmd)
 	rootCmd.AddCommand(gitCmd)
 	rootCmd.AddCommand(todoCmd)
+	rootCmd.AddCommand(fuzzyCmd)
+	rootCmd.AddCommand(summaryCmd)
 }
 
 func setupLogging() {
@@ -3215,4 +3247,159 @@ func runTodoStats() {
 
 	jsonResult, _ := json.MarshalIndent(stats, "", "  ")
 	fmt.Println(string(jsonResult))
+}
+
+func runFuzzySearch(query, kind, searchType string, limit int) {
+	searchEngine := createSearchEngine()
+	if searchEngine == nil {
+		return
+	}
+
+	if searchType == "files" {
+		files, err := searchEngine.FuzzySearchFiles(query, limit)
+		if err != nil {
+			slog.Error("fuzzy file search failed", "error", err)
+			os.Exit(1)
+		}
+
+		if len(files) == 0 {
+			fmt.Println("No matching files found")
+			return
+		}
+
+		fmt.Printf("Files matching '%s' (%d found):\n\n", query, len(files))
+		for _, f := range files {
+			fmt.Printf("  %s\n", f)
+		}
+		return
+	}
+
+	// Symbol search
+	var symbolKind types.SymbolKind
+	if kind != "" {
+		symbolKind = types.SymbolKind(kind)
+	}
+
+	matches, err := searchEngine.FuzzySearchSymbols(query, symbolKind, limit)
+	if err != nil {
+		slog.Error("fuzzy search failed", "error", err)
+		os.Exit(1)
+	}
+
+	if len(matches) == 0 {
+		fmt.Println("No matching symbols found")
+		return
+	}
+
+	fmt.Printf("Symbols matching '%s' (%d found):\n\n", query, len(matches))
+	for _, m := range matches {
+		fmt.Printf("  [%.0f%% %s] %-12s %-40s %s:%d\n",
+			m.Score*100, m.MatchType, m.Symbol.Kind, m.Symbol.Name,
+			m.Symbol.FilePath, m.Symbol.StartLine)
+	}
+}
+
+func runFileSummary(file string, quick bool) {
+	cwd, _ := os.Getwd()
+
+	// Resolve file path
+	filePath := filepath.Join(cwd, file)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		if _, err := os.Stat(file); err == nil {
+			filePath = file
+		} else {
+			slog.Error("file not found", "file", file)
+			os.Exit(1)
+		}
+	}
+
+	analyzer := analysis.NewSummaryAnalyzer()
+
+	var summary *analysis.FileSummary
+	var err error
+
+	if quick {
+		summary, err = analyzer.QuickSummary(filePath)
+	} else {
+		summary, err = analyzer.AnalyzeFile(filePath)
+	}
+
+	if err != nil {
+		slog.Error("failed to analyze file", "error", err)
+		os.Exit(1)
+	}
+
+	// Print summary
+	fmt.Printf("File: %s\n", summary.FileName)
+	fmt.Printf("Path: %s\n", summary.FilePath)
+	fmt.Printf("Language: %s\n", summary.Language)
+	fmt.Printf("Size: %d bytes\n", summary.Size)
+	fmt.Printf("Modified: %s\n\n", summary.ModifiedAt.Format("2006-01-02 15:04:05"))
+
+	fmt.Printf("Lines:\n")
+	fmt.Printf("  Total:    %d\n", summary.TotalLines)
+	fmt.Printf("  Code:     %d\n", summary.CodeLines)
+	fmt.Printf("  Comments: %d\n", summary.CommentLines)
+	fmt.Printf("  Blank:    %d\n\n", summary.BlankLines)
+
+	if quick {
+		return
+	}
+
+	// Detailed info
+	if len(summary.Imports) > 0 {
+		fmt.Printf("Imports (%d):\n", len(summary.Imports))
+		for _, imp := range summary.Imports {
+			local := ""
+			if imp.IsLocal {
+				local = " [local]"
+			}
+			fmt.Printf("  %s%s\n", imp.Path, local)
+		}
+		fmt.Println()
+	}
+
+	if len(summary.Exports) > 0 {
+		fmt.Printf("Exports (%d):\n", len(summary.Exports))
+		for _, exp := range summary.Exports {
+			fmt.Printf("  %-10s %s (line %d)\n", exp.Kind, exp.Name, exp.Line)
+		}
+		fmt.Println()
+	}
+
+	if len(summary.Functions) > 0 {
+		fmt.Printf("Functions (%d):\n", len(summary.Functions))
+		fmt.Printf("  Average lines: %.1f\n", summary.AverageFunction)
+		fmt.Printf("  Longest: %d lines\n\n", summary.LongestFunction)
+
+		for _, fn := range summary.Functions {
+			exported := ""
+			if fn.IsExported {
+				exported = " [exported]"
+			}
+			fmt.Printf("  %-40s %4d lines  complexity: %d%s\n",
+				fn.Name, fn.LineCount, fn.Complexity, exported)
+		}
+		fmt.Println()
+	}
+
+	if len(summary.Types) > 0 {
+		fmt.Printf("Types (%d):\n", len(summary.Types))
+		for _, t := range summary.Types {
+			exported := ""
+			if t.IsExported {
+				exported = " [exported]"
+			}
+			fmt.Printf("  %-10s %s (line %d)%s\n", t.Kind, t.Name, t.StartLine, exported)
+		}
+		fmt.Println()
+	}
+
+	if summary.Complexity != nil {
+		fmt.Printf("Complexity:\n")
+		fmt.Printf("  Cyclomatic:  %d\n", summary.Complexity.CyclomaticComplexity)
+		fmt.Printf("  Cognitive:   %d\n", summary.Complexity.CognitiveComplexity)
+		fmt.Printf("  Max nesting: %d\n", summary.Complexity.MaxNestingDepth)
+		fmt.Printf("  Rating:      %s\n", summary.Complexity.ComplexityRating)
+	}
 }

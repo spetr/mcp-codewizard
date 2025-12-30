@@ -169,6 +169,22 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) {
 		mcp.WithNumber("limit", mcp.Description("Maximum import edges to return")),
 	), s.handleGetImportGraph)
 
+	// fuzzy_search - Fuzzy search for symbols and files
+	mcpServer.AddTool(mcp.NewTool("fuzzy_search",
+		mcp.WithDescription("Fuzzy search for symbols by name (handles typos, partial matches, camelCase/snake_case)"),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Search query (e.g., 'getUserId', 'hndlReq', 'parse_cfg')")),
+		mcp.WithString("kind", mcp.Description("Symbol kind filter: function, type, variable, constant, interface, method")),
+		mcp.WithString("type", mcp.Description("Search type: symbols (default), files")),
+		mcp.WithNumber("limit", mcp.Description("Maximum results (default 20)")),
+	), s.handleFuzzySearch)
+
+	// get_file_summary - Get comprehensive file summary
+	mcpServer.AddTool(mcp.NewTool("get_file_summary",
+		mcp.WithDescription("Get comprehensive summary of a source file: imports, exports, functions, types, complexity, line counts"),
+		mcp.WithString("file", mcp.Required(), mcp.Description("File path (relative to project root)")),
+		mcp.WithBoolean("quick", mcp.Description("Quick summary (only line counts, no parsing)")),
+	), s.handleGetFileSummary)
+
 	// Setup Wizard tools
 
 	// detect_environment - Detect available providers and project info
@@ -847,6 +863,193 @@ func (s *Server) handleGetImportGraph(ctx context.Context, req mcp.CallToolReque
 		"unique_packages":  len(graph.Imports),
 		"top_imports":      getTopImports(graph.Imports, 20),
 		"import_details":   graph.Edges,
+	}
+
+	jsonResult, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(jsonResult)), nil
+}
+
+func (s *Server) handleFuzzySearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	query := req.GetString("query", "")
+	if query == "" {
+		return mcp.NewToolResultError("query is required"), nil
+	}
+
+	kindStr := req.GetString("kind", "")
+	searchType := req.GetString("type", "symbols")
+	limit := req.GetInt("limit", 20)
+
+	var kind types.SymbolKind
+	if kindStr != "" {
+		kind = types.SymbolKind(kindStr)
+	}
+
+	if searchType == "files" {
+		// Fuzzy search files
+		files, err := s.search.FuzzySearchFiles(query, limit)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("fuzzy file search failed: %v", err)), nil
+		}
+
+		result := map[string]any{
+			"type":    "files",
+			"query":   query,
+			"count":   len(files),
+			"matches": files,
+		}
+		jsonResult, _ := json.MarshalIndent(result, "", "  ")
+		return mcp.NewToolResultText(string(jsonResult)), nil
+	}
+
+	// Fuzzy search symbols
+	matches, err := s.search.FuzzySearchSymbols(query, kind, limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("fuzzy search failed: %v", err)), nil
+	}
+
+	// Format results
+	var formatted []map[string]any
+	for _, m := range matches {
+		formatted = append(formatted, map[string]any{
+			"name":       m.Symbol.Name,
+			"kind":       m.Symbol.Kind,
+			"file":       m.Symbol.FilePath,
+			"line":       m.Symbol.StartLine,
+			"score":      m.Score,
+			"match_type": m.MatchType,
+			"signature":  m.Symbol.Signature,
+		})
+	}
+
+	result := map[string]any{
+		"type":    "symbols",
+		"query":   query,
+		"count":   len(formatted),
+		"matches": formatted,
+	}
+
+	jsonResult, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(jsonResult)), nil
+}
+
+func (s *Server) handleGetFileSummary(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	file := req.GetString("file", "")
+	if file == "" {
+		return mcp.NewToolResultError("file is required"), nil
+	}
+
+	quick := req.GetBool("quick", false)
+
+	// Resolve file path
+	filePath := filepath.Join(s.projectDir, file)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// Try as absolute path
+		if _, err := os.Stat(file); err == nil {
+			filePath = file
+		} else {
+			return mcp.NewToolResultError(fmt.Sprintf("file not found: %s", file)), nil
+		}
+	}
+
+	analyzer := analysis.NewSummaryAnalyzer()
+
+	var summary *analysis.FileSummary
+	var err error
+
+	if quick {
+		summary, err = analyzer.QuickSummary(filePath)
+	} else {
+		summary, err = analyzer.AnalyzeFile(filePath)
+	}
+
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to analyze file: %v", err)), nil
+	}
+
+	// Build result
+	result := map[string]any{
+		"file":          summary.FileName,
+		"path":          summary.FilePath,
+		"language":      summary.Language,
+		"size":          formatBytes(summary.Size),
+		"modified":      summary.ModifiedAt.Format("2006-01-02 15:04:05"),
+		"lines": map[string]int{
+			"total":    summary.TotalLines,
+			"code":     summary.CodeLines,
+			"comments": summary.CommentLines,
+			"blank":    summary.BlankLines,
+		},
+	}
+
+	if !quick {
+		// Add detailed info
+		result["imports_count"] = len(summary.Imports)
+		result["exports_count"] = len(summary.Exports)
+		result["functions_count"] = len(summary.Functions)
+		result["types_count"] = len(summary.Types)
+
+		if len(summary.InternalDeps) > 0 {
+			result["internal_deps"] = summary.InternalDeps
+		}
+		if len(summary.ExternalDeps) > 0 {
+			result["external_deps"] = summary.ExternalDeps
+		}
+
+		// Function stats
+		if len(summary.Functions) > 0 {
+			result["average_function_lines"] = summary.AverageFunction
+			result["longest_function_lines"] = summary.LongestFunction
+
+			// Top functions by complexity
+			funcs := make([]map[string]any, 0)
+			for _, fn := range summary.Functions {
+				funcs = append(funcs, map[string]any{
+					"name":       fn.Name,
+					"lines":      fn.LineCount,
+					"complexity": fn.Complexity,
+					"exported":   fn.IsExported,
+					"start_line": fn.StartLine,
+				})
+			}
+			result["functions"] = funcs
+		}
+
+		// Types
+		if len(summary.Types) > 0 {
+			typesList := make([]map[string]any, 0)
+			for _, t := range summary.Types {
+				typesList = append(typesList, map[string]any{
+					"name":       t.Name,
+					"kind":       t.Kind,
+					"exported":   t.IsExported,
+					"start_line": t.StartLine,
+				})
+			}
+			result["types"] = typesList
+		}
+
+		// Exports
+		if len(summary.Exports) > 0 {
+			exports := make([]map[string]any, 0)
+			for _, e := range summary.Exports {
+				exports = append(exports, map[string]any{
+					"name": e.Name,
+					"kind": e.Kind,
+					"line": e.Line,
+				})
+			}
+			result["exports"] = exports
+		}
+
+		// Complexity metrics
+		if summary.Complexity != nil {
+			result["complexity"] = map[string]any{
+				"cyclomatic": summary.Complexity.CyclomaticComplexity,
+				"cognitive":  summary.Complexity.CognitiveComplexity,
+				"max_nesting": summary.Complexity.MaxNestingDepth,
+				"rating":     summary.Complexity.ComplexityRating,
+			}
+		}
 	}
 
 	jsonResult, _ := json.MarshalIndent(result, "", "  ")
