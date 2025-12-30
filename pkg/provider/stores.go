@@ -100,6 +100,18 @@ type Store interface {
 	Close() error
 }
 
+// Maintainer provides maintenance operations for the store.
+// Implementations should provide this interface for index optimization.
+type Maintainer interface {
+	// RebuildFTS rebuilds the FTS index from the source table.
+	// This fixes corruption issues where FTS has references to deleted rows.
+	RebuildFTS() error
+
+	// CheckFTSHealth verifies that the FTS index is in sync with the source table.
+	// Returns nil if healthy, error describing the issue otherwise.
+	CheckFTSHealth() error
+}
+
 // GitHistoryStore handles git history storage and search operations.
 type GitHistoryStore interface {
 	// Commit operations

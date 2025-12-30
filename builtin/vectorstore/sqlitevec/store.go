@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -99,6 +100,17 @@ func (s *Store) Init(path string) error {
 	// Create todo schema
 	if err := s.createTodoSchema(); err != nil {
 		return fmt.Errorf("failed to create todo schema: %w", err)
+	}
+
+	// Check FTS health and auto-repair if corrupted
+	if err := s.CheckFTSHealth(); err != nil {
+		slog.Warn("FTS index unhealthy, rebuilding", "error", err)
+		if rebuildErr := s.RebuildFTS(); rebuildErr != nil {
+			slog.Error("failed to rebuild FTS index", "error", rebuildErr)
+			// Continue anyway - search will work without FTS
+		} else {
+			slog.Info("FTS index rebuilt successfully")
+		}
 	}
 
 	return nil
@@ -1252,6 +1264,55 @@ func escapeFTSQuery(query string) string {
 		result = strings.ReplaceAll(result, s, "\""+s+"\"")
 	}
 	return result
+}
+
+// CheckFTSHealth verifies that the FTS index is in sync with the chunks table.
+// Returns nil if healthy, error describing the issue otherwise.
+func (s *Store) CheckFTSHealth() error {
+	if !s.enableFTS {
+		return nil
+	}
+
+	// Check if FTS table exists
+	var exists int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type='table' AND name='chunks_fts'
+	`).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check FTS table existence: %w", err)
+	}
+	if exists == 0 {
+		return nil // FTS not created yet, will be created on first use
+	}
+
+	// Try a simple query that exercises the FTS JOIN
+	// This will fail if there are orphaned FTS entries
+	_, err = s.db.Exec(`
+		SELECT c.id FROM chunks_fts fts
+		JOIN chunks c ON fts.rowid = c.rowid
+		LIMIT 1
+	`)
+	if err != nil {
+		return fmt.Errorf("FTS index corrupted: %w", err)
+	}
+
+	return nil
+}
+
+// RebuildFTS rebuilds the FTS index from the chunks table.
+// This fixes corruption issues where FTS has references to deleted rows.
+func (s *Store) RebuildFTS() error {
+	if !s.enableFTS {
+		return nil
+	}
+
+	_, err := s.db.Exec(`INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')`)
+	if err != nil {
+		return fmt.Errorf("failed to rebuild FTS index: %w", err)
+	}
+
+	return nil
 }
 
 // Ensure Store implements VectorStore interface

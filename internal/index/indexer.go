@@ -178,6 +178,14 @@ func (idx *Indexer) Index(ctx context.Context, force bool) error {
 		return fmt.Errorf("failed to store metadata: %w", err)
 	}
 
+	// Rebuild FTS index to ensure consistency after batch operations
+	if maintainer, ok := idx.store.(provider.Maintainer); ok {
+		slog.Debug("rebuilding FTS index after indexing")
+		if err := maintainer.RebuildFTS(); err != nil {
+			slog.Warn("failed to rebuild FTS index", "error", err)
+		}
+	}
+
 	duration := time.Since(startTime)
 	slog.Info("indexing complete",
 		"files", processedFiles,
