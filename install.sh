@@ -138,7 +138,6 @@ install() {
     # Verify installation
     if command -v "$BINARY_NAME" &> /dev/null; then
         info "Verifying installation..."
-        local installed_version=$("$BINARY_NAME" version 2>/dev/null || echo "unknown")
         echo ""
         echo "╔══════════════════════════════════════════════════════════════╗"
         echo "║  ✓ Installation complete!                                    ║"
@@ -149,10 +148,37 @@ install() {
         info "Get started with: ${BINARY_NAME} init"
     else
         warn "Binary installed to ${INSTALL_DIR}/${binary}"
-        warn "Make sure ${INSTALL_DIR} is in your PATH"
+        warn "${INSTALL_DIR} is not in your PATH"
         echo ""
-        echo "Add to PATH with:"
-        echo "  export PATH=\"\$PATH:${INSTALL_DIR}\""
+
+        # Add to shell profile
+        local shell_profile=""
+        local shell_name=$(basename "$SHELL")
+        case "$shell_name" in
+            zsh)  shell_profile="$HOME/.zshrc" ;;
+            bash)
+                if [ -f "$HOME/.bash_profile" ]; then
+                    shell_profile="$HOME/.bash_profile"
+                else
+                    shell_profile="$HOME/.bashrc"
+                fi
+                ;;
+            *)    shell_profile="$HOME/.profile" ;;
+        esac
+
+        local export_line="export PATH=\"\$PATH:${INSTALL_DIR}\""
+
+        # Check if already in profile
+        if [ -f "$shell_profile" ] && grep -q "$INSTALL_DIR" "$shell_profile" 2>/dev/null; then
+            info "PATH already configured in ${shell_profile}"
+        else
+            echo "$export_line" >> "$shell_profile"
+            info "Added PATH to ${shell_profile}"
+        fi
+
+        echo ""
+        echo "To use now, run:"
+        echo "  $export_line"
     fi
     echo ""
 }

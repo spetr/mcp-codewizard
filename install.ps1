@@ -108,9 +108,17 @@ function Install-Binary {
             $env:Path = "$env:Path;$InstallDir"
         }
 
-        # Verify
+        # Verify installation works
         Write-Info "Successfully installed $BinaryName to $destPath"
-        Write-Info "Restart your terminal or run: `$env:Path = [Environment]::GetEnvironmentVariable('Path', 'User')"
+        try {
+            $ver = & $destPath version 2>$null | Select-Object -First 1
+            if ($ver) {
+                Write-Info "Verified: $ver"
+                Write-Info "Ready to use! Run: $BinaryName init"
+            }
+        } catch {
+            Write-Info "New terminals will have $BinaryName in PATH"
+        }
 
     } finally {
         # Cleanup
