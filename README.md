@@ -35,8 +35,25 @@ mcp-codewizard solves all of this by creating a local semantic index of your cod
 |---------|-------------|
 | **Complexity Metrics** | Cyclomatic complexity, cognitive complexity, nesting depth |
 | **Dead Code Detection** | Find unused functions and unreachable code |
-| **Git Blame Integration** | See who wrote each line and when |
 | **Entry Points** | Identify main functions, HTTP handlers, CLI commands |
+
+### Git History
+
+| Feature | Description |
+|---------|-------------|
+| **Semantic History Search** | Search commits by meaning, not just message text |
+| **Git Blame** | See who wrote each line and when |
+| **Code Evolution** | Track how functions changed over time |
+| **Regression Finding** | Find commits that may have introduced bugs |
+| **Contributor Insights** | See who are experts on code areas |
+
+### Persistent Context
+
+| Feature | Description |
+|---------|-------------|
+| **Memory Store** | Store knowledge, decisions, notes across sessions |
+| **Todo Management** | Track tasks with priorities, due dates, subtasks |
+| **Session Continuity** | Resume where you left off |
 
 ### Technical Highlights
 
@@ -185,6 +202,8 @@ docker run -v $(pwd):/project ghcr.io/spetr/mcp-codewizard serve --stdio
 
 Configuration is stored in `.mcp-codewizard/config.yaml` in your project root.
 
+See **[CONFIG.md](CONFIG.md)** for complete configuration reference.
+
 ### Basic Configuration
 
 ```yaml
@@ -326,6 +345,34 @@ mcp-codewizard status
 mcp-codewizard status --verbose
 ```
 
+### Git History
+
+```bash
+# Index git history (separate from code indexing)
+mcp-codewizard git index
+
+# Force re-index
+mcp-codewizard git index --force
+
+# Index commits from specific date
+mcp-codewizard git index --since "7 days ago"
+
+# Show git history status
+mcp-codewizard git status
+
+# Search in commit history
+mcp-codewizard git search "authentication bug fix"
+
+# Show blame for a file
+mcp-codewizard git blame src/auth.go
+
+# Track symbol evolution
+mcp-codewizard git evolution handleLogin
+
+# Find regression candidates
+mcp-codewizard git regression "login fails" --good v1.0.0
+```
+
 ### Configuration
 
 ```bash
@@ -403,7 +450,60 @@ When used with an AI assistant, these tools are available:
 |------|-------------|
 | `get_complexity` | Get complexity metrics for a file or function |
 | `get_dead_code` | Find unused/unreachable code |
-| `get_blame` | Get git blame information for code |
+| `get_refactoring_candidates` | Find code that needs refactoring |
+| `get_entry_points` | Find main functions, handlers, CLI commands |
+| `get_import_graph` | Get module dependency graph |
+| `get_file_summary` | Get comprehensive file summary |
+| `fuzzy_search` | Fuzzy search for symbols by name |
+
+### Git History
+
+| Tool | Description |
+|------|-------------|
+| `index_git_history` | Index git history for semantic search |
+| `get_git_history_status` | Get git history index status |
+| `search_history` | Semantic search in commit history |
+| `get_blame` | Get git blame for file or line range |
+| `get_code_evolution` | Track how a symbol evolved over time |
+| `get_chunk_history` | Get change history for a chunk |
+| `find_regression` | Find commits that may have introduced a bug |
+| `get_commit_context` | Get detailed commit information |
+| `get_contributor_insights` | Get expertise info for code areas |
+
+### Memory (Persistent Context)
+
+| Tool | Description |
+|------|-------------|
+| `memory_store` | Store knowledge/context for later recall |
+| `memory_recall` | Semantic search in stored memories |
+| `memory_forget` | Delete a memory entry |
+| `memory_checkpoint` | Create a snapshot of current memories |
+| `memory_restore` | Restore from a checkpoint |
+| `memory_stats` | Get memory statistics |
+
+### Todo (Task Management)
+
+| Tool | Description |
+|------|-------------|
+| `todo_create` | Create a new task |
+| `todo_list` | List tasks with filters |
+| `todo_search` | Semantic search in tasks |
+| `todo_update` | Update task status/priority |
+| `todo_complete` | Mark task as completed |
+| `todo_delete` | Delete a task |
+| `todo_stats` | Get task statistics |
+
+### Notes & Issues
+
+| Tool | Description |
+|------|-------------|
+| `note_add` | Add a note about code or findings |
+| `note_list` | List notes with filters |
+| `decision_add` | Add an architecture decision record |
+| `decision_list` | List decisions |
+| `issue_add` | Track a known bug or issue |
+| `issue_list` | List issues |
+| `issue_resolve` | Mark issue as resolved |
 
 ## Architecture
 
