@@ -1,12 +1,23 @@
 # mcp-codewizard installer/updater for Windows
 # Usage: irm https://raw.githubusercontent.com/spetr/mcp-codewizard/main/install.ps1 | iex
 
+# Support both piped execution and direct script execution
+# For piped execution: set $env:MCP_VERSION and $env:MCP_INSTALL_DIR before running
+# For direct execution: use -Version and -InstallDir parameters
 param(
     [string]$Version = "",
-    [string]$InstallDir = "$env:LOCALAPPDATA\mcp-codewizard"
+    [string]$InstallDir = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+# Handle piped execution where param() doesn't work
+if (-not $InstallDir) {
+    $InstallDir = if ($env:MCP_INSTALL_DIR) { $env:MCP_INSTALL_DIR } else { "$env:LOCALAPPDATA\mcp-codewizard" }
+}
+if (-not $Version) {
+    $Version = $env:MCP_VERSION
+}
 $ProgressPreference = "SilentlyContinue"
 
 $Repo = "spetr/mcp-codewizard"
