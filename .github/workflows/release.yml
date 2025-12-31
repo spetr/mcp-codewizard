@@ -134,6 +134,8 @@ jobs:
         run: |
           export CGO_ENABLED=1
           export PATH="/mingw64/bin:$PATH"
+          export CC=clang
+          export CXX=clang++
           go build -tags "fts5" -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
             -o mcp-codewizard.exe \
             ./cmd/mcp-codewizard
