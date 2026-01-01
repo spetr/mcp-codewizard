@@ -51,14 +51,6 @@ type SyncConfig struct {
 	IncludePRs bool     // include pull requests
 }
 
-// DefaultSyncConfig returns default sync configuration.
-func DefaultSyncConfig() SyncConfig {
-	return SyncConfig{
-		States: []string{"open"},
-		Limit:  100,
-	}
-}
-
 // Client provides GitHub operations using gh CLI.
 type Client struct{}
 

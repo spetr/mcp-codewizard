@@ -1097,6 +1097,20 @@ func (s *Store) FindReferencesByKind(kind types.RefKind, limit int) ([]*types.Re
 	return scanReferences(rows)
 }
 
+// GetAllReferences returns all references for building call graphs.
+func (s *Store) GetAllReferences(limit int) ([]*types.Reference, error) {
+	rows, err := s.db.Query(`
+		SELECT id, from_symbol, to_symbol, kind, file_path, line, is_external
+		FROM refs WHERE is_external = 0 LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanReferences(rows)
+}
+
 func scanReferences(rows *sql.Rows) ([]*types.Reference, error) {
 	var refs []*types.Reference
 	for rows.Next() {

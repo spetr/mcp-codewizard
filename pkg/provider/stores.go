@@ -53,6 +53,10 @@ type ReferenceStore interface {
 
 	// FindReferencesByKind returns all references of a specific kind.
 	FindReferencesByKind(kind types.RefKind, limit int) ([]*types.Reference, error)
+
+	// GetAllReferences returns all references for building call graphs.
+	// Used by dead code analysis for efficient graph construction.
+	GetAllReferences(limit int) ([]*types.Reference, error)
 }
 
 // Searcher handles search operations.
@@ -180,6 +184,9 @@ func (v *vectorStoreValidator) GetCallees(symbolID string, limit int) ([]*types.
 	return nil, nil
 }
 func (v *vectorStoreValidator) FindReferencesByKind(kind types.RefKind, limit int) ([]*types.Reference, error) {
+	return nil, nil
+}
+func (v *vectorStoreValidator) GetAllReferences(limit int) ([]*types.Reference, error) {
 	return nil, nil
 }
 func (v *vectorStoreValidator) GetMetadata() (*types.IndexMetadata, error)       { return nil, nil }

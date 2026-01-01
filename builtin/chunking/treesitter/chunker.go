@@ -2733,7 +2733,7 @@ func (c *Chunker) ExtractReferences(file *types.SourceFile) ([]*types.Reference,
 func (c *Chunker) extractRefsFromNode(node *sitter.Node, file *types.SourceFile, content string, localSymbols map[string]bool, refs *[]*types.Reference, currentFunc string) {
 	nodeType := node.Type()
 
-	// Track current function context
+	// Track current function/declaration context
 	switch file.Language {
 	case "go":
 		if nodeType == "function_declaration" || nodeType == "method_declaration" {
@@ -2742,6 +2742,66 @@ func (c *Chunker) extractRefsFromNode(node *sitter.Node, file *types.SourceFile,
 				name = c.findChildByType(node, "field_identifier", content)
 			}
 			currentFunc = name
+		} else if nodeType == "var_spec" || nodeType == "const_spec" {
+			// For package-level variable/constant declarations, use variable name as context
+			// This ensures calls like `var DefaultRegistry = NewRegistry()` are tracked
+			if currentFunc == "" {
+				name := c.findChildByType(node, "identifier", content)
+				if name != "" {
+					currentFunc = name
+				}
+			}
+		}
+	case "python":
+		if nodeType == "function_definition" {
+			name := c.findChildByType(node, "identifier", content)
+			currentFunc = name
+		} else if nodeType == "assignment" && currentFunc == "" {
+			// Module-level assignments: GLOBAL_VAR = some_function()
+			// Get left side identifier
+			for i := 0; i < int(node.ChildCount()); i++ {
+				child := node.Child(i)
+				if child != nil && child.Type() == "identifier" {
+					currentFunc = content[child.StartByte():child.EndByte()]
+					break
+				}
+			}
+		}
+	case "javascript", "jsx", "typescript", "tsx":
+		if nodeType == "function_declaration" || nodeType == "method_definition" ||
+			nodeType == "arrow_function" || nodeType == "function_expression" {
+			name := c.findChildByType(node, "identifier", content)
+			if name != "" {
+				currentFunc = name
+			}
+		} else if (nodeType == "variable_declarator" || nodeType == "lexical_declaration") && currentFunc == "" {
+			// Module-level: const foo = bar() or let x = y()
+			name := c.findChildByType(node, "identifier", content)
+			if name != "" {
+				currentFunc = name
+			}
+		}
+	case "rust":
+		if nodeType == "function_item" {
+			name := c.findChildByType(node, "identifier", content)
+			currentFunc = name
+		} else if (nodeType == "static_item" || nodeType == "const_item") && currentFunc == "" {
+			// Module-level: static FOO: Type = bar();
+			name := c.findChildByType(node, "identifier", content)
+			if name != "" {
+				currentFunc = name
+			}
+		}
+	case "java":
+		if nodeType == "method_declaration" || nodeType == "constructor_declaration" {
+			name := c.findChildByType(node, "identifier", content)
+			currentFunc = name
+		} else if nodeType == "field_declaration" && currentFunc == "" {
+			// Class-level field initializers
+			name := c.findChildByType(node, "identifier", content)
+			if name != "" {
+				currentFunc = name
+			}
 		}
 	}
 
@@ -2829,6 +2889,93 @@ func (c *Chunker) extractGoRefs(node *sitter.Node, file *types.SourceFile, conte
 			*refs = append(*refs, ref)
 		}
 
+	case "composite_literal":
+		// Composite literals: Foo{...} - reference to type Foo
+		if currentFunc != "" {
+			typeNode := c.findChildNodeByType(node, "type_identifier")
+			if typeNode != nil {
+				typeName := content[typeNode.StartByte():typeNode.EndByte()]
+				if typeName != "" {
+					ref := &types.Reference{
+						ID:         fmt.Sprintf("%s:%d:literal:%s", file.Path, line, typeName),
+						FromSymbol: currentFunc,
+						ToSymbol:   typeName,
+						Kind:       types.RefKindTypeUse,
+						FilePath:   file.Path,
+						Line:       line,
+						IsExternal: !localSymbols[typeName],
+					}
+					*refs = append(*refs, ref)
+				}
+			}
+			// Handle qualified composite literals: pkg.Foo{...}
+			qualNode := c.findChildNodeByType(node, "qualified_type")
+			if qualNode != nil {
+				qualName := content[qualNode.StartByte():qualNode.EndByte()]
+				// Extract the type name part
+				if idx := strings.LastIndex(qualName, "."); idx >= 0 {
+					typeName := qualName[idx+1:]
+					ref := &types.Reference{
+						ID:         fmt.Sprintf("%s:%d:literal:%s", file.Path, line, qualName),
+						FromSymbol: currentFunc,
+						ToSymbol:   typeName,
+						Kind:       types.RefKindTypeUse,
+						FilePath:   file.Path,
+						Line:       line,
+						IsExternal: true,
+					}
+					*refs = append(*refs, ref)
+				}
+			}
+		}
+
+	case "type_assertion_expression":
+		// Type assertions: x.(Foo) - reference to type Foo
+		if currentFunc != "" {
+			typeNode := c.findChildNodeByType(node, "type_identifier")
+			if typeNode != nil {
+				typeName := content[typeNode.StartByte():typeNode.EndByte()]
+				if typeName != "" {
+					ref := &types.Reference{
+						ID:         fmt.Sprintf("%s:%d:assert:%s", file.Path, line, typeName),
+						FromSymbol: currentFunc,
+						ToSymbol:   typeName,
+						Kind:       types.RefKindTypeUse,
+						FilePath:   file.Path,
+						Line:       line,
+						IsExternal: !localSymbols[typeName],
+					}
+					*refs = append(*refs, ref)
+				}
+			}
+		}
+
+	case "type_switch_statement":
+		// Type switch: switch x.(type) { case Foo: ... }
+		// Cases are handled separately, but we track the statement
+		break
+
+	case "type_case":
+		// Type case in switch: case Foo:
+		if currentFunc != "" {
+			typeNode := c.findChildNodeByType(node, "type_identifier")
+			if typeNode != nil {
+				typeName := content[typeNode.StartByte():typeNode.EndByte()]
+				if typeName != "" {
+					ref := &types.Reference{
+						ID:         fmt.Sprintf("%s:%d:case:%s", file.Path, line, typeName),
+						FromSymbol: currentFunc,
+						ToSymbol:   typeName,
+						Kind:       types.RefKindTypeUse,
+						FilePath:   file.Path,
+						Line:       line,
+						IsExternal: !localSymbols[typeName],
+					}
+					*refs = append(*refs, ref)
+				}
+			}
+		}
+
 	case "type_identifier":
 		// Type usage (but not in type declarations)
 		parent := node.Parent()
@@ -2845,6 +2992,37 @@ func (c *Chunker) extractGoRefs(node *sitter.Node, file *types.SourceFile, conte
 					IsExternal: !localSymbols[typeName],
 				}
 				*refs = append(*refs, ref)
+			}
+		}
+
+	case "identifier":
+		// Check if it's a function value reference (not a call)
+		// e.g., handler := MyFunc (assigning function without calling)
+		parent := node.Parent()
+		if parent != nil && currentFunc != "" {
+			parentType := parent.Type()
+			// Skip if parent is call_expression (already handled)
+			// Skip if it's a declaration (var name, not value)
+			if parentType != "call_expression" && parentType != "short_var_declaration" &&
+				parentType != "var_spec" && parentType != "parameter_declaration" {
+				name := content[node.StartByte():node.EndByte()]
+				// Check if this identifier is a known function
+				if localSymbols[name] && name != currentFunc {
+					// Could be a function reference, check grandparent
+					if parentType == "argument_list" || parentType == "expression_list" ||
+						parentType == "assignment_statement" {
+						ref := &types.Reference{
+							ID:         fmt.Sprintf("%s:%d:ref:%s", file.Path, line, name),
+							FromSymbol: currentFunc,
+							ToSymbol:   name,
+							Kind:       types.RefKindCall, // Treat as call for reachability
+							FilePath:   file.Path,
+							Line:       line,
+							IsExternal: false,
+						}
+						*refs = append(*refs, ref)
+					}
+				}
 			}
 		}
 

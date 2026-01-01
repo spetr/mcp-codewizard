@@ -180,14 +180,5 @@ func (p *Provider) Available(ctx context.Context) error {
 	return nil
 }
 
-// SupportedModels returns the list of supported OpenAI embedding models.
-func SupportedModels() []string {
-	return []string{
-		"text-embedding-ada-002",
-		"text-embedding-3-small",
-		"text-embedding-3-large",
-	}
-}
-
 // Ensure Provider implements EmbeddingProvider interface
 var _ provider.EmbeddingProvider = (*Provider)(nil)
