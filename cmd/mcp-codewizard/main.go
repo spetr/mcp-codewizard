@@ -2156,9 +2156,9 @@ func getClaudeCodeConfigPath(global bool) string {
 		// Claude Code uses ~/.claude.json for user config
 		return filepath.Join(home, ".claude.json")
 	}
-	// Project-level config
+	// Project-level config uses .mcp.json
 	cwd, _ := os.Getwd()
-	return filepath.Join(cwd, ".claude.json")
+	return filepath.Join(cwd, ".mcp.json")
 }
 
 func getGeminiConfigPath(global bool) string {
