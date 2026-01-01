@@ -74,33 +74,46 @@ Run the interactive wizard from the command line:
 ```bash
 $ mcp-codewizard init
 
-Detecting environment...
+=== mcp-codewizard Setup ===
 
-=== Environment ===
-Ollama: Running at http://localhost:11434
-  - nomic-embed-code (embedding)
-  - qwen3-reranker (reranker)
-OpenAI: Not configured
-System: darwin/arm64, 10 cores, 32GB RAM
+Detecting environment... done
 
-=== Project ===
-Path: /home/user/my-project
-Files: 245 (Go, Python, TypeScript)
-Complexity: medium (est. 1,200 chunks)
+Step 1: AI Provider
+-------------------
+Which embedding provider do you want to use?
 
-=== Configuration ===
-Choose a preset:
+  * [1] Ollama - running at http://localhost:11434
+    [2] OpenAI - OPENAI_API_KEY not set
+    [3] Custom endpoint
 
-  *[1] Recommended - Best balance of quality and performance for your system
-   [2] High Quality - Maximum search accuracy, more resources
-   [3] Fast & Light - Minimal resources, good for large projects
-   [4] Custom - Configure each option individually
+Select provider [1]: 1
 
-Select preset [1]: 1
+Step 2: API Endpoint
+--------------------
+Ollama endpoint [http://localhost:11434]:
+Testing connection... ✓ Connected
 
-Using 'recommended' preset.
+Step 3: Embedding Model
+-----------------------
+Available embedding models:
 
-=== Configuration ===
+  * [1] nomic-embed-code (274 MB)
+    [2] mxbai-embed-large (670 MB)
+    [3] all-minilm (45 MB)
+
+Select model [1]: 1
+
+Step 4: Reranker (Optional)
+---------------------------
+Reranking improves search accuracy by ~15% but uses additional resources.
+
+Available reranker models:
+  * [1] qwen3-reranker (600 MB)
+    [2] Disable reranker
+
+Select [1]: 1
+
+=== Configuration Summary ===
 Embedding: ollama/nomic-embed-code
 Reranker: ollama/qwen3-reranker (top 100 candidates)
 Chunking: treesitter (max 2000 tokens)
@@ -114,6 +127,13 @@ Start indexing now? (Y/n): y
 Indexing complete!
 Files: 245, Chunks: 1187, Symbols: 892
 ```
+
+The wizard:
+1. **Detects available providers** - Shows Ollama/OpenAI availability status
+2. **Tests connection** - Verifies the endpoint is reachable
+3. **Lists available models** - Shows models from the connected provider
+4. **Configures reranker** - Optional, shows available reranker models
+5. **Starts indexing** - Optionally begins indexing immediately
 
 ## Option 3: CLI with Preset
 
@@ -133,65 +153,52 @@ mcp-codewizard init --preset fast
 mcp-codewizard init --preset recommended --no-index
 ```
 
-## Option 4: Custom Configuration
+## Option 4: Custom Endpoint (OpenAI-compatible)
 
-Choose each option individually:
+Use a custom OpenAI-compatible API (e.g., Azure OpenAI, local LLM server):
 
 ```
 $ mcp-codewizard init
 
-Select preset [1]: 4   # Custom
+=== mcp-codewizard Setup ===
 
-=== Custom Configuration ===
-(* = recommended)
+Detecting environment... done
 
-Embedding Provider:
-  Choose how to generate code embeddings for semantic search
+Step 1: AI Provider
+-------------------
+Which embedding provider do you want to use?
 
-  *[1] Ollama (nomic-embed-code)
-      Local, fast, optimized for code. No API costs.
-   [2] OpenAI (text-embedding-3-small) [Set OPENAI_API_KEY environment variable]
-      Cloud-based, high quality. Requires API key, has costs.
-   [3] OpenAI (text-embedding-3-large) [Set OPENAI_API_KEY environment variable]
-      Highest quality embeddings. Higher cost.
+    [1] Ollama - not detected
+    [2] OpenAI - OPENAI_API_KEY not set
+  * [3] Custom endpoint
 
-Select [1]: 1
+Select provider [1]: 3
 
-Search Reranker:
-  Reranking improves search accuracy by ~15% but uses more resources
+Step 2: API Endpoint
+--------------------
+API endpoint URL: https://my-company.openai.azure.com
 
-  *[1] Enabled (qwen3-reranker)
-      Better search accuracy, uses ~600MB VRAM
-   [2] Disabled
-      Faster, less resource usage, slightly lower accuracy
+API Key: sk-...
+Testing connection... ✓ Connected
 
-Select [1]: 1
+Step 3: Embedding Model
+-----------------------
+Available embedding models:
 
-Code Chunking:
-  How to split code files for indexing
+  * [1] text-embedding-3-small (fast, good quality)
+    [2] text-embedding-3-large (highest quality)
+    [3] text-embedding-ada-002 (legacy)
 
-  *[1] TreeSitter (semantic)
-      AST-aware chunking. Detected: go, python, typescript
-   [2] Simple (line-based)
-      Fast, works with any language. Less accurate boundaries.
+Select model [1]: 1
 
-Select [1]: 1
+Step 4: Reranker (Optional)
+---------------------------
+Reranker requires Ollama. Skipping.
 
-Search Mode:
-  How to search the codebase
-
-  *[1] Hybrid (BM25 + Vector)
-      Best accuracy. Combines keyword and semantic search.
-   [2] Vector only
-      Pure semantic search. Good for conceptual queries.
-   [3] BM25 only
-      Keyword search only. Fast, no embeddings needed.
-
-Select [1]: 1
-
-=== Configuration ===
-Embedding: ollama/nomic-embed-code
-Reranker: ollama/qwen3-reranker (top 100 candidates)
+=== Configuration Summary ===
+Embedding: openai/text-embedding-3-small
+Endpoint: https://my-company.openai.azure.com
+Reranker: Disabled
 Chunking: treesitter (max 2000 tokens)
 Search: hybrid (vector 70%, BM25 30%)
 

@@ -156,6 +156,19 @@ index:
 
 ## CLI Commands
 
+### Setup & Initialization
+```bash
+mcp-codewizard init                   # interactive setup wizard
+mcp-codewizard init --preset recommended  # quick setup with preset
+mcp-codewizard init --no-index        # init without indexing
+```
+
+The `init` wizard guides through:
+1. **AI Provider** - Ollama/OpenAI/Custom with auto-detection
+2. **Endpoint** - with connection testing
+3. **Model selection** - shows available models from provider
+4. **Reranker** - optional, shows available reranker models
+
 ### Basic Commands
 ```bash
 mcp-codewizard index [path]           # index project

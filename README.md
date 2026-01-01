@@ -285,10 +285,10 @@ embedding:
 ### Initialization (New Projects)
 
 ```bash
-# Interactive setup wizard - detects environment, recommends settings
+# Interactive setup wizard (recommended)
 mcp-codewizard init
 
-# Quick setup with preset (skips prompts)
+# Quick setup with preset (skips interactive prompts)
 mcp-codewizard init --preset recommended   # Best balance
 mcp-codewizard init --preset quality       # Maximum accuracy
 mcp-codewizard init --preset fast          # Minimal resources
@@ -300,11 +300,64 @@ mcp-codewizard init --preset recommended --no-index
 mcp-codewizard init --json
 ```
 
-The wizard will:
-1. Detect your environment (Ollama, OpenAI, GPU, RAM)
-2. Analyze your project (languages, size, complexity)
-3. Recommend optimal settings
-4. Create configuration and optionally start indexing
+The interactive wizard guides you through setup step by step:
+
+```
+=== mcp-codewizard Setup ===
+
+Detecting environment... done
+
+Step 1: AI Provider
+-------------------
+Which embedding provider do you want to use?
+
+  * [1] Ollama - running at http://localhost:11434
+    [2] OpenAI - OPENAI_API_KEY not set
+    [3] Custom endpoint
+
+Select provider [1]:
+
+Step 2: API Endpoint
+--------------------
+Ollama endpoint [http://localhost:11434]:
+Testing connection... ✓ Connected
+
+Step 3: Embedding Model
+-----------------------
+Available embedding models:
+
+  * [1] nomic-embed-code (274 MB)
+    [2] mxbai-embed-large (670 MB)
+
+Select model [1]:
+
+Step 4: Reranker (Optional)
+---------------------------
+Reranking improves search accuracy by ~15% but uses additional resources.
+
+Available reranker models:
+  * [1] qwen3-reranker (600 MB)
+    [2] Disable reranker
+
+Select [1]:
+
+=== Configuration Summary ===
+Embedding: ollama/nomic-embed-code
+Reranker: ollama/qwen3-reranker (top 100 candidates)
+Chunking: treesitter (max 2000 tokens)
+Search: hybrid (vector 70%, BM25 30%)
+
+Configuration saved to .mcp-codewizard/config.yaml
+
+Start indexing now? (Y/n):
+```
+
+The wizard:
+1. Detects available providers (Ollama, OpenAI)
+2. Tests connection and shows available models
+3. Lets you select embedding and reranker models
+4. Creates configuration with sensible defaults
+5. Optionally starts indexing immediately
 
 ### Indexing
 
