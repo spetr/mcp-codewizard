@@ -1555,7 +1555,7 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 		providerInput = strings.TrimSpace(providerInput)
 		providerSelection := defaultProvider
 		if providerInput != "" {
-			fmt.Sscanf(providerInput, "%d", &providerSelection)
+			_, _ = fmt.Sscanf(providerInput, "%d", &providerSelection)
 		}
 
 		var provider string
@@ -1672,7 +1672,7 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 			modelInput = strings.TrimSpace(modelInput)
 			modelSelection := defaultModelIdx + 1
 			if modelInput != "" {
-				fmt.Sscanf(modelInput, "%d", &modelSelection)
+				_, _ = fmt.Sscanf(modelInput, "%d", &modelSelection)
 			}
 
 			if modelSelection >= 1 && modelSelection <= len(embeddingModels) {
@@ -1724,7 +1724,7 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 				rerankerInput = strings.TrimSpace(rerankerInput)
 				rerankerSelection := 1
 				if rerankerInput != "" {
-					fmt.Sscanf(rerankerInput, "%d", &rerankerSelection)
+					_, _ = fmt.Sscanf(rerankerInput, "%d", &rerankerSelection)
 				}
 
 				if rerankerSelection >= 1 && rerankerSelection <= len(rerankerModels) {
