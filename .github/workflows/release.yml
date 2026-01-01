@@ -136,7 +136,8 @@ jobs:
           export PATH="/mingw64/bin:$PATH"
           export CC=clang
           export CXX=clang++
-          go build -tags "fts5" -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
+          export CGO_LDFLAGS="-static -static-libgcc -static-libstdc++ -lpthread"
+          go build -tags "fts5" -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }} -extldflags '-static'" \
             -o mcp-codewizard.exe \
             ./cmd/mcp-codewizard
 
@@ -150,8 +151,9 @@ jobs:
           GOARCH: arm64
           CC: aarch64-w64-mingw32-clang
           CXX: aarch64-w64-mingw32-clang++
+          CGO_LDFLAGS: '-static -static-libgcc -static-libstdc++ -lpthread'
         run: |
-          go build -tags "fts5" -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" `
+          go build -tags "fts5" -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }} -extldflags '-static'" `
             -o mcp-codewizard.exe `
             ./cmd/mcp-codewizard
 
