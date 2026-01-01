@@ -1606,7 +1606,7 @@ func runInteractiveCustomSetup(wiz *wizard.Wizard, env *wizard.DetectEnvironment
 
 	// Step 1: Ask for AI Provider
 	fmt.Println("AI Provider:")
-	fmt.Println("  Choose the embedding provider for semantic search\n")
+	fmt.Println("  Choose the embedding provider for semantic search")
 
 	ollamaStatus := ""
 	if env.Ollama.Available {
@@ -1690,7 +1690,7 @@ func runInteractiveCustomSetup(wiz *wizard.Wizard, env *wizard.DetectEnvironment
 	// Step 4: Ask for API key (if OpenAI or custom endpoint)
 	if provider == "openai" || endpoint != defaultEndpoint {
 		fmt.Println("API Key:")
-		fmt.Println("  Enter your API key (leave empty to use OPENAI_API_KEY env var)\n")
+		fmt.Println("  Enter your API key (leave empty to use OPENAI_API_KEY env var)")
 		fmt.Print("API Key []: ")
 
 		apiKeyInput, _ := reader.ReadString('\n')
