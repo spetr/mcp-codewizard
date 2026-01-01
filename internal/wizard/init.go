@@ -37,6 +37,14 @@ type InitWizardState struct {
 	Ready       bool                     `json:"ready"`
 }
 
+// ProviderSettings contains user-provided settings for embedding provider.
+type ProviderSettings struct {
+	Provider string `json:"provider"` // ollama, openai
+	Endpoint string `json:"endpoint"` // API endpoint URL
+	APIKey   string `json:"api_key"`  // API key (for OpenAI or custom endpoints)
+	Model    string `json:"model"`    // model name
+}
+
 // GetInitOptions returns available initialization options based on detected environment.
 func (w *Wizard) GetInitOptions(env *DetectEnvironmentResult) []InitOption {
 	options := []InitOption{}
@@ -353,6 +361,21 @@ func (w *Wizard) ApplySelections(env *DetectEnvironmentResult, selections map[st
 		}
 	}
 
+	// Apply custom endpoint if provided
+	if endpoint, ok := selections["endpoint"]; ok && endpoint != "" {
+		cfg.Embedding.Endpoint = endpoint
+	}
+
+	// Apply API key if provided
+	if apiKey, ok := selections["api_key"]; ok && apiKey != "" {
+		cfg.Embedding.APIKey = apiKey
+	}
+
+	// Apply custom model if provided
+	if model, ok := selections["model"]; ok && model != "" {
+		cfg.Embedding.Model = model
+	}
+
 	if reranker, ok := selections["reranker"]; ok {
 		cfg.Reranker.Enabled = reranker == "enabled"
 		if cfg.Reranker.Enabled {
@@ -371,6 +394,26 @@ func (w *Wizard) ApplySelections(env *DetectEnvironmentResult, selections map[st
 	}
 
 	return cfg
+}
+
+// ApplyProviderSettings applies provider settings to a config.
+func (w *Wizard) ApplyProviderSettings(cfg *config.Config, settings *ProviderSettings) {
+	if settings == nil {
+		return
+	}
+
+	if settings.Provider != "" {
+		cfg.Embedding.Provider = settings.Provider
+	}
+	if settings.Endpoint != "" {
+		cfg.Embedding.Endpoint = settings.Endpoint
+	}
+	if settings.APIKey != "" {
+		cfg.Embedding.APIKey = settings.APIKey
+	}
+	if settings.Model != "" {
+		cfg.Embedding.Model = settings.Model
+	}
 }
 
 // FormatEnvironmentSummary returns a formatted summary of the detected environment.

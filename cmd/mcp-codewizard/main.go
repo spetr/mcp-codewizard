@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -1596,23 +1598,123 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 
 func runInteractiveCustomSetup(wiz *wizard.Wizard, env *wizard.DetectEnvironmentResult, options []wizard.InitOption) *config.Config {
 	selections := make(map[string]string)
+	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("\n=== Custom Configuration ===")
 	fmt.Println("(* = recommended)")
 	fmt.Println()
 
+	// Step 1: Ask for AI Provider
+	fmt.Println("AI Provider:")
+	fmt.Println("  Choose the embedding provider for semantic search\n")
+
+	ollamaStatus := ""
+	if env.Ollama.Available {
+		ollamaStatus = " (running)"
+	} else {
+		ollamaStatus = " (not running)"
+	}
+
+	openaiStatus := ""
+	if env.OpenAI.Available {
+		openaiStatus = " (API key set)"
+	}
+
+	defaultProvider := 1
+	if !env.Ollama.Available && env.OpenAI.Available {
+		defaultProvider = 2
+	}
+
+	fmt.Printf("  %s[1] Ollama%s\n", marker(defaultProvider == 1), ollamaStatus)
+	fmt.Println("      Local, fast, no API costs")
+	fmt.Printf("  %s[2] OpenAI%s\n", marker(defaultProvider == 2), openaiStatus)
+	fmt.Println("      Cloud-based, high quality, requires API key")
+	fmt.Printf("\nSelect provider [%d]: ", defaultProvider)
+
+	providerInput, _ := reader.ReadString('\n')
+	providerInput = strings.TrimSpace(providerInput)
+
+	providerSelection := defaultProvider
+	if providerInput != "" {
+		_, _ = fmt.Sscanf(providerInput, "%d", &providerSelection)
+	}
+
+	var provider string
+	var defaultEndpoint string
+	var defaultModel string
+
+	switch providerSelection {
+	case 2:
+		provider = "openai"
+		defaultEndpoint = "https://api.openai.com/v1"
+		defaultModel = "text-embedding-3-small"
+	default:
+		provider = "ollama"
+		defaultEndpoint = "http://localhost:11434"
+		defaultModel = "nomic-embed-code"
+	}
+
+	selections["embedding"] = provider
+	fmt.Println()
+
+	// Step 2: Ask for endpoint
+	fmt.Println("API Endpoint:")
+	fmt.Printf("  Enter the API endpoint URL\n\n")
+	fmt.Printf("Endpoint [%s]: ", defaultEndpoint)
+
+	endpointInput, _ := reader.ReadString('\n')
+	endpointInput = strings.TrimSpace(endpointInput)
+
+	endpoint := defaultEndpoint
+	if endpointInput != "" {
+		endpoint = endpointInput
+	}
+	selections["endpoint"] = endpoint
+	fmt.Println()
+
+	// Step 3: Ask for model
+	fmt.Println("Model:")
+	fmt.Printf("  Enter the embedding model name\n\n")
+	fmt.Printf("Model [%s]: ", defaultModel)
+
+	modelInput, _ := reader.ReadString('\n')
+	modelInput = strings.TrimSpace(modelInput)
+
+	model := defaultModel
+	if modelInput != "" {
+		model = modelInput
+	}
+	selections["model"] = model
+	fmt.Println()
+
+	// Step 4: Ask for API key (if OpenAI or custom endpoint)
+	if provider == "openai" || endpoint != defaultEndpoint {
+		fmt.Println("API Key:")
+		fmt.Println("  Enter your API key (leave empty to use OPENAI_API_KEY env var)\n")
+		fmt.Print("API Key []: ")
+
+		apiKeyInput, _ := reader.ReadString('\n')
+		apiKeyInput = strings.TrimSpace(apiKeyInput)
+
+		if apiKeyInput != "" {
+			selections["api_key"] = apiKeyInput
+		}
+		fmt.Println()
+	}
+
+	// Step 5: Continue with other options (reranker, chunking, search)
 	for _, opt := range options {
-		if opt.ID == "preset" {
-			continue // Skip preset option, we're doing custom
+		if opt.ID == "preset" || opt.ID == "embedding" {
+			continue // Skip preset and embedding (already handled)
 		}
 
 		fmt.Printf("%s:\n", opt.Name)
 		fmt.Printf("  %s\n\n", opt.Description)
 
 		for i, choice := range opt.Choices {
-			marker := "  "
+			m := "  "
 			if choice.Recommended {
-				marker = "* "
+				m = "* "
 			}
 
 			warning := ""
@@ -1620,15 +1722,15 @@ func runInteractiveCustomSetup(wiz *wizard.Wizard, env *wizard.DetectEnvironment
 				warning = fmt.Sprintf(" [%s]", choice.Warning)
 			}
 
-			fmt.Printf("  %s[%d] %s%s\n", marker, i+1, choice.Label, warning)
+			fmt.Printf("  %s[%d] %s%s\n", m, i+1, choice.Label, warning)
 			fmt.Printf("      %s\n", choice.Description)
 		}
 
 		defaultChoice := opt.Default + 1
 		fmt.Printf("\nSelect [%d]: ", defaultChoice)
 
-		var input string
-		_, _ = fmt.Scanln(&input)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
 
 		selection := defaultChoice
 		if input != "" {
@@ -1646,6 +1748,13 @@ func runInteractiveCustomSetup(wiz *wizard.Wizard, env *wizard.DetectEnvironment
 
 	selections["preset"] = "custom"
 	return wiz.ApplySelections(env, selections)
+}
+
+func marker(recommended bool) string {
+	if recommended {
+		return "* "
+	}
+	return "  "
 }
 
 func formatBytes(bytes int64) string {
