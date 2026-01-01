@@ -970,6 +970,7 @@ func createProviders(cfg *config.Config) (provider.VectorStore, provider.Embeddi
 		embedding = openaiEmbed.New(openaiEmbed.Config{
 			Model:     cfg.Embedding.Model,
 			APIKey:    cfg.Embedding.APIKey,
+			BaseURL:   cfg.Embedding.Endpoint,
 			BatchSize: cfg.Embedding.BatchSize,
 		})
 	default:
