@@ -662,3 +662,157 @@ type TestResult struct {
 	Status  string `json:"status"` // "ok", "error", "warning", "skipped"
 	Message string `json:"message"`
 }
+
+// ConnectionTestResult contains result of testing a provider connection.
+type ConnectionTestResult struct {
+	Connected bool        `json:"connected"`
+	Error     string      `json:"error,omitempty"`
+	Models    []ModelInfo `json:"models,omitempty"`
+}
+
+// TestOllamaConnection tests connection to an Ollama endpoint and returns available models.
+func (w *Wizard) TestOllamaConnection(ctx context.Context, endpoint string) *ConnectionTestResult {
+	result := &ConnectionTestResult{}
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Test connection
+	req, _ := http.NewRequestWithContext(ctx, "GET", endpoint+"/api/version", nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		result.Error = fmt.Sprintf("Cannot connect to %s: %v", endpoint, err)
+		return result
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		result.Error = fmt.Sprintf("Ollama returned status %d", resp.StatusCode)
+		return result
+	}
+
+	result.Connected = true
+
+	// Get models
+	req, _ = http.NewRequestWithContext(ctx, "GET", endpoint+"/api/tags", nil)
+	resp, err = client.Do(req)
+	if err != nil {
+		return result
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var tagsResp struct {
+			Models []struct {
+				Name       string `json:"name"`
+				Size       int64  `json:"size"`
+				ModifiedAt string `json:"modified_at"`
+			} `json:"models"`
+		}
+
+		if json.NewDecoder(resp.Body).Decode(&tagsResp) == nil {
+			for _, m := range tagsResp.Models {
+				modelType := detectModelType(m.Name)
+				result.Models = append(result.Models, ModelInfo{
+					Name:        m.Name,
+					Size:        formatBytes(m.Size),
+					Type:        modelType,
+					Recommended: isRecommendedModel(m.Name),
+				})
+			}
+		}
+	}
+
+	return result
+}
+
+// TestOpenAIConnection tests connection to an OpenAI-compatible endpoint.
+func (w *Wizard) TestOpenAIConnection(ctx context.Context, endpoint string, apiKey string) *ConnectionTestResult {
+	result := &ConnectionTestResult{}
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Normalize endpoint
+	if !strings.HasSuffix(endpoint, "/v1") && !strings.HasSuffix(endpoint, "/v1/") {
+		if !strings.HasSuffix(endpoint, "/") {
+			endpoint += "/"
+		}
+		endpoint += "v1"
+	}
+
+	// Test connection by listing models
+	req, _ := http.NewRequestWithContext(ctx, "GET", endpoint+"/models", nil)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		result.Error = fmt.Sprintf("Cannot connect to %s: %v", endpoint, err)
+		return result
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 401 {
+		result.Error = "Invalid API key"
+		return result
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		result.Error = fmt.Sprintf("API returned status %d", resp.StatusCode)
+		return result
+	}
+
+	result.Connected = true
+
+	// Parse models response
+	var modelsResp struct {
+		Data []struct {
+			ID      string `json:"id"`
+			Created int64  `json:"created"`
+		} `json:"data"`
+	}
+
+	if json.NewDecoder(resp.Body).Decode(&modelsResp) == nil {
+		for _, m := range modelsResp.Data {
+			// Filter for embedding models
+			if strings.Contains(m.ID, "embed") {
+				result.Models = append(result.Models, ModelInfo{
+					Name:        m.ID,
+					Type:        "embedding",
+					Recommended: strings.Contains(m.ID, "text-embedding-3"),
+				})
+			}
+		}
+	}
+
+	// If no models found, add known OpenAI embedding models
+	if len(result.Models) == 0 {
+		result.Models = []ModelInfo{
+			{Name: "text-embedding-3-small", Type: "embedding", Recommended: true, Size: "fast, good quality"},
+			{Name: "text-embedding-3-large", Type: "embedding", Recommended: false, Size: "highest quality"},
+			{Name: "text-embedding-ada-002", Type: "embedding", Recommended: false, Size: "legacy"},
+		}
+	}
+
+	return result
+}
+
+// GetEmbeddingModels returns embedding models from the connection test result.
+func (r *ConnectionTestResult) GetEmbeddingModels() []ModelInfo {
+	var models []ModelInfo
+	for _, m := range r.Models {
+		if m.Type == "embedding" {
+			models = append(models, m)
+		}
+	}
+	return models
+}
+
+// GetRerankerModels returns reranker models from the connection test result.
+func (r *ConnectionTestResult) GetRerankerModels() []ModelInfo {
+	var models []ModelInfo
+	for _, m := range r.Models {
+		if m.Type == "reranker" {
+			models = append(models, m)
+		}
+	}
+	return models
+}

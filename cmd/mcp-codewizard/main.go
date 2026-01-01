@@ -1470,21 +1470,17 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 	}
 
 	wiz := wizard.New(absPath)
-
-	// Phase 1: Detect environment
-	if !jsonOutput {
-		fmt.Println("Detecting environment...")
-	}
-
 	ctx := context.Background()
-	env, err := wiz.DetectEnvironment(ctx)
-	if err != nil {
-		slog.Error("detection failed", "error", err)
-		os.Exit(1)
-	}
 
 	// JSON output mode (for MCP integration)
 	if jsonOutput {
+		fmt.Println("Detecting environment...")
+		env, err := wiz.DetectEnvironment(ctx)
+		if err != nil {
+			slog.Error("detection failed", "error", err)
+			os.Exit(1)
+		}
+
 		state := wizard.InitWizardState{
 			Environment: env,
 			Options:     wiz.GetInitOptions(env),
@@ -1492,7 +1488,6 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 		}
 
 		if preset != "" {
-			// Apply preset directly
 			cfg := wiz.ApplyPreset(env, preset)
 			state.Config = cfg
 			state.Selections = map[string]string{"preset": preset}
@@ -1504,78 +1499,281 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 		return
 	}
 
-	// Phase 2: Show environment summary
+	// Interactive mode - start with AI provider setup
+	fmt.Println("\n=== mcp-codewizard Setup ===")
 	fmt.Println()
-	fmt.Println(wizard.FormatEnvironmentSummary(env))
 
-	// Phase 3: Get user choice
-	var cfg *config.Config
+	reader := bufio.NewReader(os.Stdin)
+	cfg := config.DefaultConfig()
 
+	// Quick environment detection for display
+	fmt.Print("Detecting environment... ")
+	env, _ := wiz.DetectEnvironment(ctx)
+	fmt.Println("done")
+	fmt.Println()
+
+	// If preset specified, use it directly
 	if preset != "" {
-		// Use preset from command line
 		cfg = wiz.ApplyPreset(env, preset)
-		fmt.Printf("\nUsing '%s' preset.\n", preset)
+		fmt.Printf("Using '%s' preset.\n", preset)
 	} else {
-		// Interactive mode
-		fmt.Println("\n=== Configuration ===")
-		fmt.Println("Choose a preset:")
+		// Step 1: Choose AI Provider
+		fmt.Println("Step 1: AI Provider")
+		fmt.Println("-------------------")
+		fmt.Println("Which embedding provider do you want to use?")
 		fmt.Println()
 
-		options := wiz.GetInitOptions(env)
+		// Show provider options with detection status
+		ollamaStatus := "not detected"
+		ollamaMarker := "  "
+		if env.Ollama.Available {
+			ollamaStatus = fmt.Sprintf("running at %s", env.Ollama.Endpoint)
+			ollamaMarker = "* "
+		}
 
-		// Find preset option
-		var presetOption *wizard.InitOption
-		for i := range options {
-			if options[i].ID == "preset" {
-				presetOption = &options[i]
-				break
+		openaiStatus := "OPENAI_API_KEY not set"
+		openaiMarker := "  "
+		if env.OpenAI.Available {
+			openaiStatus = "API key configured"
+			if !env.Ollama.Available {
+				openaiMarker = "* "
 			}
 		}
 
-		if presetOption != nil {
-			for i, choice := range presetOption.Choices {
-				marker := "  "
-				if choice.Recommended {
-					marker = "* "
-				}
-				availMark := ""
-				if !choice.Available {
-					availMark = " (unavailable)"
-				}
-				fmt.Printf("  %s[%d] %s - %s%s\n", marker, i+1, choice.Label, choice.Description, availMark)
-			}
+		fmt.Printf("  %s[1] Ollama - %s\n", ollamaMarker, ollamaStatus)
+		fmt.Printf("  %s[2] OpenAI - %s\n", openaiMarker, openaiStatus)
+		fmt.Println("    [3] Custom endpoint")
+		fmt.Println()
+
+		defaultProvider := 1
+		if !env.Ollama.Available && env.OpenAI.Available {
+			defaultProvider = 2
+		}
+		fmt.Printf("Select provider [%d]: ", defaultProvider)
+
+		providerInput, _ := reader.ReadString('\n')
+		providerInput = strings.TrimSpace(providerInput)
+		providerSelection := defaultProvider
+		if providerInput != "" {
+			fmt.Sscanf(providerInput, "%d", &providerSelection)
+		}
+
+		var provider string
+		var endpoint string
+		var apiKey string
+		var connResult *wizard.ConnectionTestResult
+
+		switch providerSelection {
+		case 2:
+			provider = "openai"
+			endpoint = "https://api.openai.com/v1"
+		case 3:
+			provider = "openai" // Custom uses OpenAI-compatible API
+			endpoint = ""
+		default:
+			provider = "ollama"
+			endpoint = "http://localhost:11434"
 		}
 
 		fmt.Println()
-		fmt.Print("Select preset [1]: ")
-		var input string
-		_, _ = fmt.Scanln(&input)
 
-		// Parse selection
-		selection := 1
-		if input != "" {
-			_, _ = fmt.Sscanf(input, "%d", &selection)
-		}
+		// Step 2: Configure endpoint
+		fmt.Println("Step 2: API Endpoint")
+		fmt.Println("--------------------")
 
-		// Map selection to preset
-		if presetOption != nil && selection >= 1 && selection <= len(presetOption.Choices) {
-			selectedPreset := presetOption.Choices[selection-1].ID
-			if selectedPreset == "custom" {
-				cfg = runInteractiveCustomSetup(wiz, env, options)
+		if provider == "ollama" {
+			fmt.Printf("Ollama endpoint [%s]: ", endpoint)
+			endpointInput, _ := reader.ReadString('\n')
+			endpointInput = strings.TrimSpace(endpointInput)
+			if endpointInput != "" {
+				endpoint = endpointInput
+			}
+
+			// Test connection
+			fmt.Print("Testing connection... ")
+			connResult = wiz.TestOllamaConnection(ctx, endpoint)
+			if connResult.Connected {
+				fmt.Println("✓ Connected")
 			} else {
-				cfg = wiz.ApplyPreset(env, selectedPreset)
-				fmt.Printf("\nUsing '%s' preset.\n", selectedPreset)
+				fmt.Printf("✗ Failed: %s\n", connResult.Error)
+				fmt.Println("You can continue with this endpoint, but indexing may fail.")
 			}
 		} else {
-			cfg = wiz.ApplyPreset(env, "recommended")
-			fmt.Println("\nUsing 'recommended' preset.")
+			if endpoint == "" {
+				fmt.Print("API endpoint URL: ")
+				endpointInput, _ := reader.ReadString('\n')
+				endpoint = strings.TrimSpace(endpointInput)
+				if endpoint == "" {
+					endpoint = "https://api.openai.com/v1"
+				}
+			} else {
+				fmt.Printf("OpenAI endpoint [%s]: ", endpoint)
+				endpointInput, _ := reader.ReadString('\n')
+				endpointInput = strings.TrimSpace(endpointInput)
+				if endpointInput != "" {
+					endpoint = endpointInput
+				}
+			}
+
+			// Get API key
+			fmt.Println()
+			if env.OpenAI.Available {
+				fmt.Print("API Key [press Enter to use OPENAI_API_KEY]: ")
+			} else {
+				fmt.Print("API Key: ")
+			}
+			apiKeyInput, _ := reader.ReadString('\n')
+			apiKey = strings.TrimSpace(apiKeyInput)
+			if apiKey == "" {
+				apiKey = os.Getenv("OPENAI_API_KEY")
+			}
+
+			// Test connection
+			fmt.Print("Testing connection... ")
+			connResult = wiz.TestOpenAIConnection(ctx, endpoint, apiKey)
+			if connResult.Connected {
+				fmt.Println("✓ Connected")
+			} else {
+				fmt.Printf("✗ Failed: %s\n", connResult.Error)
+				fmt.Println("You can continue, but indexing may fail.")
+			}
 		}
+
+		fmt.Println()
+
+		// Step 3: Select embedding model
+		fmt.Println("Step 3: Embedding Model")
+		fmt.Println("-----------------------")
+
+		var selectedModel string
+		embeddingModels := connResult.GetEmbeddingModels()
+
+		if len(embeddingModels) > 0 {
+			fmt.Println("Available embedding models:")
+			fmt.Println()
+
+			defaultModelIdx := 0
+			for i, m := range embeddingModels {
+				marker := "  "
+				if m.Recommended {
+					marker = "* "
+					defaultModelIdx = i
+				}
+				sizeInfo := ""
+				if m.Size != "" {
+					sizeInfo = fmt.Sprintf(" (%s)", m.Size)
+				}
+				fmt.Printf("  %s[%d] %s%s\n", marker, i+1, m.Name, sizeInfo)
+			}
+			fmt.Println()
+			fmt.Printf("Select model [%d]: ", defaultModelIdx+1)
+
+			modelInput, _ := reader.ReadString('\n')
+			modelInput = strings.TrimSpace(modelInput)
+			modelSelection := defaultModelIdx + 1
+			if modelInput != "" {
+				fmt.Sscanf(modelInput, "%d", &modelSelection)
+			}
+
+			if modelSelection >= 1 && modelSelection <= len(embeddingModels) {
+				selectedModel = embeddingModels[modelSelection-1].Name
+			} else {
+				selectedModel = embeddingModels[defaultModelIdx].Name
+			}
+		} else {
+			// No models detected, ask for manual input
+			defaultModel := "nomic-embed-code"
+			if provider == "openai" {
+				defaultModel = "text-embedding-3-small"
+			}
+			fmt.Printf("Model name [%s]: ", defaultModel)
+			modelInput, _ := reader.ReadString('\n')
+			selectedModel = strings.TrimSpace(modelInput)
+			if selectedModel == "" {
+				selectedModel = defaultModel
+			}
+		}
+
+		fmt.Println()
+
+		// Step 4: Reranker (optional)
+		fmt.Println("Step 4: Reranker (Optional)")
+		fmt.Println("---------------------------")
+		fmt.Println("Reranking improves search accuracy by ~15% but uses additional resources.")
+		fmt.Println()
+
+		enableReranker := false
+		rerankerModel := ""
+
+		if provider == "ollama" && connResult.Connected {
+			rerankerModels := connResult.GetRerankerModels()
+			if len(rerankerModels) > 0 {
+				fmt.Println("Available reranker models:")
+				for i, m := range rerankerModels {
+					marker := "  "
+					if m.Recommended {
+						marker = "* "
+					}
+					fmt.Printf("  %s[%d] %s (%s)\n", marker, i+1, m.Name, m.Size)
+				}
+				fmt.Printf("    [%d] Disable reranker\n", len(rerankerModels)+1)
+				fmt.Println()
+				fmt.Print("Select [1]: ")
+
+				rerankerInput, _ := reader.ReadString('\n')
+				rerankerInput = strings.TrimSpace(rerankerInput)
+				rerankerSelection := 1
+				if rerankerInput != "" {
+					fmt.Sscanf(rerankerInput, "%d", &rerankerSelection)
+				}
+
+				if rerankerSelection >= 1 && rerankerSelection <= len(rerankerModels) {
+					enableReranker = true
+					rerankerModel = rerankerModels[rerankerSelection-1].Name
+				}
+			} else {
+				fmt.Println("No reranker models found. You can install one with:")
+				fmt.Println("  ollama pull qwen3-reranker")
+				fmt.Println()
+				fmt.Print("Enable reranker anyway? (y/N): ")
+				rerankerInput, _ := reader.ReadString('\n')
+				if strings.TrimSpace(strings.ToLower(rerankerInput)) == "y" {
+					enableReranker = true
+					rerankerModel = "qwen3-reranker"
+				}
+			}
+		} else {
+			fmt.Println("Reranker requires Ollama. Skipping.")
+		}
+
+		fmt.Println()
+
+		// Apply configuration
+		cfg.Embedding.Provider = provider
+		cfg.Embedding.Endpoint = endpoint
+		cfg.Embedding.Model = selectedModel
+		if apiKey != "" && apiKey != os.Getenv("OPENAI_API_KEY") {
+			cfg.Embedding.APIKey = apiKey
+		}
+
+		cfg.Reranker.Enabled = enableReranker
+		if enableReranker {
+			cfg.Reranker.Provider = "ollama"
+			cfg.Reranker.Model = rerankerModel
+			cfg.Reranker.Endpoint = endpoint
+		}
+
+		// Use sensible defaults for other settings
+		cfg.Chunking.Strategy = "treesitter"
+		cfg.Search.Mode = "hybrid"
 	}
 
-	// Phase 4: Show config summary and save
+	// Show summary
+	fmt.Println("=== Configuration Summary ===")
 	fmt.Println()
 	fmt.Println(wizard.FormatConfigSummary(cfg))
 
+	// Save configuration
 	if err := config.Save(absPath, cfg); err != nil {
 		slog.Error("failed to save config", "error", err)
 		os.Exit(1)
@@ -1583,7 +1781,7 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 
 	fmt.Printf("Configuration saved to %s\n", configPath)
 
-	// Phase 5: Optionally start indexing
+	// Optionally start indexing
 	if !skipIndex {
 		fmt.Println()
 		fmt.Print("Start indexing now? (Y/n): ")
@@ -1594,167 +1792,6 @@ func runInit(path string, preset string, skipIndex bool, jsonOutput bool) {
 			runIndex(absPath, false)
 		}
 	}
-}
-
-func runInteractiveCustomSetup(wiz *wizard.Wizard, env *wizard.DetectEnvironmentResult, options []wizard.InitOption) *config.Config {
-	selections := make(map[string]string)
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Println("\n=== Custom Configuration ===")
-	fmt.Println("(* = recommended)")
-	fmt.Println()
-
-	// Step 1: Ask for AI Provider
-	fmt.Println("AI Provider:")
-	fmt.Println("  Choose the embedding provider for semantic search")
-
-	ollamaStatus := ""
-	if env.Ollama.Available {
-		ollamaStatus = " (running)"
-	} else {
-		ollamaStatus = " (not running)"
-	}
-
-	openaiStatus := ""
-	if env.OpenAI.Available {
-		openaiStatus = " (API key set)"
-	}
-
-	defaultProvider := 1
-	if !env.Ollama.Available && env.OpenAI.Available {
-		defaultProvider = 2
-	}
-
-	fmt.Printf("  %s[1] Ollama%s\n", marker(defaultProvider == 1), ollamaStatus)
-	fmt.Println("      Local, fast, no API costs")
-	fmt.Printf("  %s[2] OpenAI%s\n", marker(defaultProvider == 2), openaiStatus)
-	fmt.Println("      Cloud-based, high quality, requires API key")
-	fmt.Printf("\nSelect provider [%d]: ", defaultProvider)
-
-	providerInput, _ := reader.ReadString('\n')
-	providerInput = strings.TrimSpace(providerInput)
-
-	providerSelection := defaultProvider
-	if providerInput != "" {
-		_, _ = fmt.Sscanf(providerInput, "%d", &providerSelection)
-	}
-
-	var provider string
-	var defaultEndpoint string
-	var defaultModel string
-
-	switch providerSelection {
-	case 2:
-		provider = "openai"
-		defaultEndpoint = "https://api.openai.com/v1"
-		defaultModel = "text-embedding-3-small"
-	default:
-		provider = "ollama"
-		defaultEndpoint = "http://localhost:11434"
-		defaultModel = "nomic-embed-code"
-	}
-
-	selections["embedding"] = provider
-	fmt.Println()
-
-	// Step 2: Ask for endpoint
-	fmt.Println("API Endpoint:")
-	fmt.Printf("  Enter the API endpoint URL\n\n")
-	fmt.Printf("Endpoint [%s]: ", defaultEndpoint)
-
-	endpointInput, _ := reader.ReadString('\n')
-	endpointInput = strings.TrimSpace(endpointInput)
-
-	endpoint := defaultEndpoint
-	if endpointInput != "" {
-		endpoint = endpointInput
-	}
-	selections["endpoint"] = endpoint
-	fmt.Println()
-
-	// Step 3: Ask for model
-	fmt.Println("Model:")
-	fmt.Printf("  Enter the embedding model name\n\n")
-	fmt.Printf("Model [%s]: ", defaultModel)
-
-	modelInput, _ := reader.ReadString('\n')
-	modelInput = strings.TrimSpace(modelInput)
-
-	model := defaultModel
-	if modelInput != "" {
-		model = modelInput
-	}
-	selections["model"] = model
-	fmt.Println()
-
-	// Step 4: Ask for API key (if OpenAI or custom endpoint)
-	if provider == "openai" || endpoint != defaultEndpoint {
-		fmt.Println("API Key:")
-		fmt.Println("  Enter your API key (leave empty to use OPENAI_API_KEY env var)")
-		fmt.Print("API Key []: ")
-
-		apiKeyInput, _ := reader.ReadString('\n')
-		apiKeyInput = strings.TrimSpace(apiKeyInput)
-
-		if apiKeyInput != "" {
-			selections["api_key"] = apiKeyInput
-		}
-		fmt.Println()
-	}
-
-	// Step 5: Continue with other options (reranker, chunking, search)
-	for _, opt := range options {
-		if opt.ID == "preset" || opt.ID == "embedding" {
-			continue // Skip preset and embedding (already handled)
-		}
-
-		fmt.Printf("%s:\n", opt.Name)
-		fmt.Printf("  %s\n\n", opt.Description)
-
-		for i, choice := range opt.Choices {
-			m := "  "
-			if choice.Recommended {
-				m = "* "
-			}
-
-			warning := ""
-			if choice.Warning != "" {
-				warning = fmt.Sprintf(" [%s]", choice.Warning)
-			}
-
-			fmt.Printf("  %s[%d] %s%s\n", m, i+1, choice.Label, warning)
-			fmt.Printf("      %s\n", choice.Description)
-		}
-
-		defaultChoice := opt.Default + 1
-		fmt.Printf("\nSelect [%d]: ", defaultChoice)
-
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		selection := defaultChoice
-		if input != "" {
-			_, _ = fmt.Sscanf(input, "%d", &selection)
-		}
-
-		if selection >= 1 && selection <= len(opt.Choices) {
-			selections[opt.ID] = opt.Choices[selection-1].ID
-		} else {
-			selections[opt.ID] = opt.Choices[opt.Default].ID
-		}
-
-		fmt.Println()
-	}
-
-	selections["preset"] = "custom"
-	return wiz.ApplySelections(env, selections)
-}
-
-func marker(recommended bool) string {
-	if recommended {
-		return "* "
-	}
-	return "  "
 }
 
 func formatBytes(bytes int64) string {
