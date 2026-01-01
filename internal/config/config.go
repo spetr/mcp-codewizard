@@ -14,82 +14,82 @@ import (
 
 // Config represents the complete configuration.
 type Config struct {
-	Embedding   EmbeddingConfig   `mapstructure:"embedding"`
-	Chunking    ChunkingConfig    `mapstructure:"chunking"`
-	Reranker    RerankerConfig    `mapstructure:"reranker"`
-	Search      SearchConfig      `mapstructure:"search"`
-	VectorStore VectorStoreConfig `mapstructure:"vectorstore"`
-	Index       IndexConfig       `mapstructure:"index"`
-	Limits      LimitsConfig      `mapstructure:"limits"`
-	Analysis    AnalysisConfig    `mapstructure:"analysis"`
-	Logging     LoggingConfig     `mapstructure:"logging"`
+	Embedding   EmbeddingConfig   `mapstructure:"embedding" yaml:"embedding"`
+	Chunking    ChunkingConfig    `mapstructure:"chunking" yaml:"chunking"`
+	Reranker    RerankerConfig    `mapstructure:"reranker" yaml:"reranker"`
+	Search      SearchConfig      `mapstructure:"search" yaml:"search"`
+	VectorStore VectorStoreConfig `mapstructure:"vectorstore" yaml:"vectorstore"`
+	Index       IndexConfig       `mapstructure:"index" yaml:"index"`
+	Limits      LimitsConfig      `mapstructure:"limits" yaml:"limits"`
+	Analysis    AnalysisConfig    `mapstructure:"analysis" yaml:"analysis"`
+	Logging     LoggingConfig     `mapstructure:"logging" yaml:"logging"`
 }
 
 // EmbeddingConfig contains embedding provider configuration.
 type EmbeddingConfig struct {
-	Provider  string `mapstructure:"provider"`   // ollama, openai, voyage, jina
-	Model     string `mapstructure:"model"`      // model name
-	Endpoint  string `mapstructure:"endpoint"`   // API endpoint
-	APIKey    string `mapstructure:"api_key"`    // API key
-	BatchSize int    `mapstructure:"batch_size"` // documents per batch
+	Provider  string `mapstructure:"provider" yaml:"provider"`     // ollama, openai, voyage, jina
+	Model     string `mapstructure:"model" yaml:"model"`           // model name
+	Endpoint  string `mapstructure:"endpoint" yaml:"endpoint"`     // API endpoint
+	APIKey    string `mapstructure:"api_key" yaml:"api_key"`       // API key
+	BatchSize int    `mapstructure:"batch_size" yaml:"batch_size"` // documents per batch
 }
 
 // ChunkingConfig contains chunking strategy configuration.
 type ChunkingConfig struct {
-	Strategy     string `mapstructure:"strategy"`       // treesitter, simple
-	MaxChunkSize int    `mapstructure:"max_chunk_size"` // max tokens per chunk
+	Strategy     string `mapstructure:"strategy" yaml:"strategy"`             // treesitter, simple
+	MaxChunkSize int    `mapstructure:"max_chunk_size" yaml:"max_chunk_size"` // max tokens per chunk
 }
 
 // RerankerConfig contains reranker configuration.
 type RerankerConfig struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	Provider   string `mapstructure:"provider"`   // ollama, none
-	Model      string `mapstructure:"model"`      // model name
-	Endpoint   string `mapstructure:"endpoint"`   // API endpoint
-	Candidates int    `mapstructure:"candidates"` // candidates for reranking
+	Enabled    bool   `mapstructure:"enabled" yaml:"enabled"`
+	Provider   string `mapstructure:"provider" yaml:"provider"`     // ollama, none
+	Model      string `mapstructure:"model" yaml:"model"`           // model name
+	Endpoint   string `mapstructure:"endpoint" yaml:"endpoint"`     // API endpoint
+	Candidates int    `mapstructure:"candidates" yaml:"candidates"` // candidates for reranking
 }
 
 // SearchConfig contains search configuration.
 type SearchConfig struct {
-	Mode         string  `mapstructure:"mode"`          // vector, bm25, hybrid
-	VectorWeight float32 `mapstructure:"vector_weight"` // weight for vector search
-	BM25Weight   float32 `mapstructure:"bm25_weight"`   // weight for BM25
-	DefaultLimit int     `mapstructure:"default_limit"` // default result limit
+	Mode         string  `mapstructure:"mode" yaml:"mode"`                   // vector, bm25, hybrid
+	VectorWeight float32 `mapstructure:"vector_weight" yaml:"vector_weight"` // weight for vector search
+	BM25Weight   float32 `mapstructure:"bm25_weight" yaml:"bm25_weight"`     // weight for BM25
+	DefaultLimit int     `mapstructure:"default_limit" yaml:"default_limit"` // default result limit
 }
 
 // VectorStoreConfig contains vector store configuration.
 type VectorStoreConfig struct {
-	Provider string `mapstructure:"provider"` // sqlitevec
+	Provider string `mapstructure:"provider" yaml:"provider"` // sqlitevec
 }
 
 // IndexConfig contains indexing configuration.
 type IndexConfig struct {
-	Include      []string `mapstructure:"include"`       // glob patterns to include
-	Exclude      []string `mapstructure:"exclude"`       // glob patterns to exclude
-	UseGitIgnore bool     `mapstructure:"use_gitignore"` // respect .gitignore
+	Include      []string `mapstructure:"include" yaml:"include"`             // glob patterns to include
+	Exclude      []string `mapstructure:"exclude" yaml:"exclude"`             // glob patterns to exclude
+	UseGitIgnore bool     `mapstructure:"use_gitignore" yaml:"use_gitignore"` // respect .gitignore
 }
 
 // LimitsConfig contains resource limits.
 type LimitsConfig struct {
-	MaxFileSize     string        `mapstructure:"max_file_size"`     // e.g., "1MB"
-	MaxFiles        int           `mapstructure:"max_files"`         // max files to index
-	MaxChunkTokens  int           `mapstructure:"max_chunk_tokens"`  // max tokens per chunk
-	Timeout         time.Duration `mapstructure:"timeout"`           // indexing timeout
-	MemoryLimit     string        `mapstructure:"memory_limit"`      // memory limit
-	Workers         int           `mapstructure:"workers"`           // parallel workers
+	MaxFileSize    string        `mapstructure:"max_file_size" yaml:"max_file_size"`       // e.g., "1MB"
+	MaxFiles       int           `mapstructure:"max_files" yaml:"max_files"`               // max files to index
+	MaxChunkTokens int           `mapstructure:"max_chunk_tokens" yaml:"max_chunk_tokens"` // max tokens per chunk
+	Timeout        time.Duration `mapstructure:"timeout" yaml:"timeout"`                   // indexing timeout
+	MemoryLimit    string        `mapstructure:"memory_limit" yaml:"memory_limit"`         // memory limit
+	Workers        int           `mapstructure:"workers" yaml:"workers"`                   // parallel workers
 }
 
 // AnalysisConfig contains analysis options.
 type AnalysisConfig struct {
-	ExtractSymbols    bool `mapstructure:"extract_symbols"`
-	ExtractReferences bool `mapstructure:"extract_references"`
-	DetectPatterns    bool `mapstructure:"detect_patterns"`
+	ExtractSymbols    bool `mapstructure:"extract_symbols" yaml:"extract_symbols"`
+	ExtractReferences bool `mapstructure:"extract_references" yaml:"extract_references"`
+	DetectPatterns    bool `mapstructure:"detect_patterns" yaml:"detect_patterns"`
 }
 
 // LoggingConfig contains logging configuration.
 type LoggingConfig struct {
-	Level  string `mapstructure:"level"`  // debug, info, warn, error
-	Format string `mapstructure:"format"` // text, json
+	Level  string `mapstructure:"level" yaml:"level"`   // debug, info, warn, error
+	Format string `mapstructure:"format" yaml:"format"` // text, json
 }
 
 // DefaultConfig returns the default configuration.
