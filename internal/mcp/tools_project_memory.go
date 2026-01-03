@@ -17,170 +17,147 @@ import (
 
 // registerProjectMemoryTools registers project memory and session tools.
 func (s *Server) registerProjectMemoryTools(mcpServer *server.MCPServer) {
-	// get_project_context - Get initialization data for new session
+	// Session
 	mcpServer.AddTool(mcp.NewTool("get_project_context",
-		mcp.WithDescription("Get project context and initialization data for a new AI session. Returns project info, git state, index status, memory summary, and suggested actions. Call this at the start of each session."),
+		mcp.WithDescription("Session init context"),
 	), s.handleGetProjectContext)
 
-	// === Notes ===
-
-	// note_add - Add a new note
+	// Notes
 	mcpServer.AddTool(mcp.NewTool("note_add",
-		mcp.WithDescription("Add a note about code, architecture, or findings. Notes are tracked in git."),
-		mcp.WithString("title", mcp.Required(), mcp.Description("Note title")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("Note content (markdown)")),
-		mcp.WithArray("tags", mcp.Description("Tags for organization")),
-		mcp.WithString("file", mcp.Description("Related file path")),
-		mcp.WithNumber("line_start", mcp.Description("Start line in file")),
-		mcp.WithNumber("line_end", mcp.Description("End line in file")),
-		mcp.WithString("author", mcp.Description("Author: 'human', 'ai:claude', 'ai:gemini'")),
+		mcp.WithDescription("Add note"),
+		mcp.WithString("title", mcp.Required(), mcp.Description("Title")),
+		mcp.WithString("content", mcp.Required(), mcp.Description("Content")),
+		mcp.WithArray("tags", mcp.Description("Tags")),
+		mcp.WithString("file", mcp.Description("File path")),
+		mcp.WithNumber("line_start", mcp.Description("Start line")),
+		mcp.WithNumber("line_end", mcp.Description("End line")),
+		mcp.WithString("author", mcp.Description("human|ai:claude|ai:gemini")),
 	), s.handleNoteAdd)
 
-	// note_list - List notes
 	mcpServer.AddTool(mcp.NewTool("note_list",
-		mcp.WithDescription("List notes with optional filters"),
-		mcp.WithArray("tags", mcp.Description("Filter by tags")),
-		mcp.WithString("file", mcp.Description("Filter by file path")),
-		mcp.WithString("search", mcp.Description("Search in title and content")),
-		mcp.WithString("author", mcp.Description("Filter by author")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 20)")),
+		mcp.WithDescription("List notes"),
+		mcp.WithArray("tags", mcp.Description("Tags")),
+		mcp.WithString("file", mcp.Description("File")),
+		mcp.WithString("search", mcp.Description("Search")),
+		mcp.WithString("author", mcp.Description("Author")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleNoteList)
 
-	// note_get - Get a specific note
 	mcpServer.AddTool(mcp.NewTool("note_get",
-		mcp.WithDescription("Get a specific note by ID"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Note ID")),
+		mcp.WithDescription("Get note"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
 	), s.handleNoteGet)
 
-	// note_update - Update a note
 	mcpServer.AddTool(mcp.NewTool("note_update",
-		mcp.WithDescription("Update an existing note"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Note ID")),
-		mcp.WithString("title", mcp.Description("New title")),
-		mcp.WithString("content", mcp.Description("New content")),
-		mcp.WithArray("tags", mcp.Description("New tags")),
+		mcp.WithDescription("Update note"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
+		mcp.WithString("title", mcp.Description("Title")),
+		mcp.WithString("content", mcp.Description("Content")),
+		mcp.WithArray("tags", mcp.Description("Tags")),
 	), s.handleNoteUpdate)
 
-	// note_delete - Delete a note
 	mcpServer.AddTool(mcp.NewTool("note_delete",
-		mcp.WithDescription("Delete a note"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Note ID to delete")),
+		mcp.WithDescription("Delete note"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
 	), s.handleNoteDelete)
 
-	// === Decisions (ADR) ===
-
-	// decision_add - Add an architecture decision
+	// Decisions (ADR)
 	mcpServer.AddTool(mcp.NewTool("decision_add",
-		mcp.WithDescription("Add an architecture decision record (ADR). Tracked in git."),
-		mcp.WithString("title", mcp.Required(), mcp.Description("Decision title")),
-		mcp.WithString("context", mcp.Required(), mcp.Description("Why we're deciding (problem/situation)")),
-		mcp.WithString("decision", mcp.Required(), mcp.Description("What we decided")),
-		mcp.WithString("consequences", mcp.Description("What this means (tradeoffs)")),
-		mcp.WithArray("alternatives", mcp.Description("Alternatives considered")),
-		mcp.WithString("status", mcp.Description("Status: proposed, accepted (default: proposed)")),
+		mcp.WithDescription("Add decision (ADR)"),
+		mcp.WithString("title", mcp.Required(), mcp.Description("Title")),
+		mcp.WithString("context", mcp.Required(), mcp.Description("Context")),
+		mcp.WithString("decision", mcp.Required(), mcp.Description("Decision")),
+		mcp.WithString("consequences", mcp.Description("Consequences")),
+		mcp.WithArray("alternatives", mcp.Description("Alternatives")),
+		mcp.WithString("status", mcp.Description("proposed|accepted")),
 	), s.handleDecisionAdd)
 
-	// decision_list - List decisions
 	mcpServer.AddTool(mcp.NewTool("decision_list",
-		mcp.WithDescription("List architecture decisions"),
-		mcp.WithArray("status", mcp.Description("Filter by status: proposed, accepted, deprecated, superseded")),
-		mcp.WithString("search", mcp.Description("Search in title, context, decision")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 20)")),
+		mcp.WithDescription("List decisions"),
+		mcp.WithArray("status", mcp.Description("proposed|accepted|deprecated|superseded")),
+		mcp.WithString("search", mcp.Description("Search")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleDecisionList)
 
-	// decision_get - Get a specific decision
 	mcpServer.AddTool(mcp.NewTool("decision_get",
-		mcp.WithDescription("Get a specific decision by ID"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Decision ID")),
-		mcp.WithBoolean("markdown", mcp.Description("Export as markdown (ADR format)")),
+		mcp.WithDescription("Get decision"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
+		mcp.WithBoolean("markdown", mcp.Description("Export markdown")),
 	), s.handleDecisionGet)
 
-	// decision_update - Update a decision
 	mcpServer.AddTool(mcp.NewTool("decision_update",
-		mcp.WithDescription("Update an architecture decision"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Decision ID")),
-		mcp.WithString("status", mcp.Description("New status: proposed, accepted, deprecated")),
-		mcp.WithString("decision", mcp.Description("New decision text")),
-		mcp.WithString("consequences", mcp.Description("New consequences")),
-		mcp.WithString("superseded_by", mcp.Description("ID of decision that supersedes this one")),
+		mcp.WithDescription("Update decision"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
+		mcp.WithString("status", mcp.Description("Status")),
+		mcp.WithString("decision", mcp.Description("Decision")),
+		mcp.WithString("consequences", mcp.Description("Consequences")),
+		mcp.WithString("superseded_by", mcp.Description("Superseded by ID")),
 	), s.handleDecisionUpdate)
 
-	// === Issues ===
-
-	// issue_add - Add a known issue
+	// Issues
 	mcpServer.AddTool(mcp.NewTool("issue_add",
-		mcp.WithDescription("Add a known issue or bug to track. Tracked in git."),
-		mcp.WithString("title", mcp.Required(), mcp.Description("Issue title")),
-		mcp.WithString("description", mcp.Required(), mcp.Description("Issue description")),
-		mcp.WithString("severity", mcp.Description("Severity: critical, major, minor (default: minor)")),
-		mcp.WithString("file", mcp.Description("Related file path")),
-		mcp.WithNumber("line", mcp.Description("Line number in file")),
+		mcp.WithDescription("Add issue"),
+		mcp.WithString("title", mcp.Required(), mcp.Description("Title")),
+		mcp.WithString("description", mcp.Required(), mcp.Description("Description")),
+		mcp.WithString("severity", mcp.Description("critical|major|minor")),
+		mcp.WithString("file", mcp.Description("File")),
+		mcp.WithNumber("line", mcp.Description("Line")),
 	), s.handleIssueAdd)
 
-	// issue_list - List issues
 	mcpServer.AddTool(mcp.NewTool("issue_list",
-		mcp.WithDescription("List known issues"),
-		mcp.WithArray("status", mcp.Description("Filter by status: open, investigating, resolved")),
-		mcp.WithArray("severity", mcp.Description("Filter by severity: critical, major, minor")),
-		mcp.WithString("file", mcp.Description("Filter by file path")),
-		mcp.WithString("search", mcp.Description("Search in title and description")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 20)")),
+		mcp.WithDescription("List issues"),
+		mcp.WithArray("status", mcp.Description("open|investigating|resolved")),
+		mcp.WithArray("severity", mcp.Description("critical|major|minor")),
+		mcp.WithString("file", mcp.Description("File")),
+		mcp.WithString("search", mcp.Description("Search")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleIssueList)
 
-	// issue_resolve - Resolve an issue
 	mcpServer.AddTool(mcp.NewTool("issue_resolve",
-		mcp.WithDescription("Mark an issue as resolved"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Issue ID")),
-		mcp.WithString("resolution", mcp.Required(), mcp.Description("How the issue was resolved")),
+		mcp.WithDescription("Resolve issue"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
+		mcp.WithString("resolution", mcp.Required(), mcp.Description("Resolution")),
 	), s.handleIssueResolve)
 
-	// issue_reopen - Reopen an issue
 	mcpServer.AddTool(mcp.NewTool("issue_reopen",
-		mcp.WithDescription("Reopen a resolved issue"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Issue ID")),
+		mcp.WithDescription("Reopen issue"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
 	), s.handleIssueReopen)
 
-	// github_sync - Sync issues from GitHub
 	mcpServer.AddTool(mcp.NewTool("github_sync",
-		mcp.WithDescription("Sync issues and pull requests from GitHub using gh CLI. Requires gh to be installed and authenticated."),
-		mcp.WithBoolean("all", mcp.Description("Sync all issues (open + closed). Default: only open")),
-		mcp.WithBoolean("prs", mcp.Description("Include pull requests")),
-		mcp.WithNumber("limit", mcp.Description("Maximum items to sync (default: 100)")),
-		mcp.WithArray("labels", mcp.Description("Filter by labels")),
-		mcp.WithString("assignee", mcp.Description("Filter by assignee")),
+		mcp.WithDescription("Sync from GitHub"),
+		mcp.WithBoolean("all", mcp.Description("Include closed")),
+		mcp.WithBoolean("prs", mcp.Description("Include PRs")),
+		mcp.WithNumber("limit", mcp.Description("Max items")),
+		mcp.WithArray("labels", mcp.Description("Labels")),
+		mcp.WithString("assignee", mcp.Description("Assignee")),
 	), s.handleGitHubSync)
 
-	// === Session Management ===
-
-	// session_set_context - Set working context
+	// Session
 	mcpServer.AddTool(mcp.NewTool("session_set_context",
-		mcp.WithDescription("Set the current working context for session continuity"),
-		mcp.WithString("task", mcp.Description("Current task description")),
-		mcp.WithString("details", mcp.Description("Task details")),
-		mcp.WithArray("files", mcp.Description("Relevant files")),
+		mcp.WithDescription("Set session context"),
+		mcp.WithString("task", mcp.Description("Task")),
+		mcp.WithString("details", mcp.Description("Details")),
+		mcp.WithArray("files", mcp.Description("Files")),
 	), s.handleSessionSetContext)
 
-	// session_end - End session with summary
 	mcpServer.AddTool(mcp.NewTool("session_end",
-		mcp.WithDescription("End the current session and save a summary for the next session"),
-		mcp.WithString("summary", mcp.Required(), mcp.Description("What was accomplished")),
-		mcp.WithArray("next_steps", mcp.Description("Suggested next steps")),
-		mcp.WithArray("open_issues", mcp.Description("Unresolved problems")),
+		mcp.WithDescription("End session"),
+		mcp.WithString("summary", mcp.Required(), mcp.Description("Summary")),
+		mcp.WithArray("next_steps", mcp.Description("Next steps")),
+		mcp.WithArray("open_issues", mcp.Description("Open issues")),
 	), s.handleSessionEnd)
 
-	// session_get_history - Get session history
 	mcpServer.AddTool(mcp.NewTool("session_get_history",
-		mcp.WithDescription("Get previous session summaries"),
-		mcp.WithNumber("limit", mcp.Description("Maximum sessions to return (default 5)")),
+		mcp.WithDescription("Session history"),
+		mcp.WithNumber("limit", mcp.Description("Max sessions")),
 	), s.handleSessionGetHistory)
 
-	// === Memory Merge ===
-
-	// memory_merge - Perform three-way merge after git merge
+	// Memory merge
 	mcpServer.AddTool(mcp.NewTool("memory_merge",
-		mcp.WithDescription("Perform three-way merge of memory after git merge. Call this after resolving git merge conflicts."),
-		mcp.WithString("base_commit", mcp.Required(), mcp.Description("Base commit hash (merge base)")),
-		mcp.WithString("strategy", mcp.Description("Merge strategy: auto, ours, theirs (default: auto)")),
+		mcp.WithDescription("Merge memories (post-git-merge)"),
+		mcp.WithString("base_commit", mcp.Required(), mcp.Description("Base commit")),
+		mcp.WithString("strategy", mcp.Description("auto|ours|theirs")),
 	), s.handleMemoryMerge)
 }
 

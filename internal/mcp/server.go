@@ -88,362 +88,317 @@ func New(cfg Config) (*Server, error) {
 
 // registerTools registers all MCP tools.
 func (s *Server) registerTools(mcpServer *server.MCPServer) {
-	// index_codebase - Index the current project
+	// Indexing & Search
 	mcpServer.AddTool(mcp.NewTool("index_codebase",
-		mcp.WithDescription("Index the codebase for semantic search"),
-		mcp.WithBoolean("force", mcp.Description("Force reindex all files")),
-		mcp.WithArray("ignore_patterns", mcp.Description("Additional patterns to exclude (e.g., ['**/test/**', '*.spec.ts'])")),
-		mcp.WithArray("custom_extensions", mcp.Description("Additional file extensions to include (e.g., ['.vue', '.svelte', '.astro'])")),
+		mcp.WithDescription("Index codebase for search"),
+		mcp.WithBoolean("force", mcp.Description("Reindex all")),
+		mcp.WithArray("ignore_patterns", mcp.Description("Exclude patterns")),
+		mcp.WithArray("custom_extensions", mcp.Description("Extra extensions")),
 	), s.handleIndexCodebase)
 
-	// search_code - Semantic code search
 	mcpServer.AddTool(mcp.NewTool("search_code",
-		mcp.WithDescription("Search code using semantic similarity"),
-		mcp.WithString("query", mcp.Required(), mcp.Description("Search query")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 10)")),
-		mcp.WithString("mode", mcp.Description("Search mode: vector, bm25, hybrid (default)")),
-		mcp.WithBoolean("no_rerank", mcp.Description("Disable reranking")),
-		mcp.WithBoolean("include_context", mcp.Description("Include surrounding lines")),
-		mcp.WithArray("languages", mcp.Description("Filter by languages")),
+		mcp.WithDescription("Semantic code search"),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Query")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
+		mcp.WithString("mode", mcp.Description("vector|bm25|hybrid")),
+		mcp.WithBoolean("no_rerank", mcp.Description("Skip reranking")),
+		mcp.WithBoolean("include_context", mcp.Description("Add context")),
+		mcp.WithArray("languages", mcp.Description("Language filter")),
 	), s.handleSearchCode)
 
-	// get_chunk - Get a specific chunk with context
 	mcpServer.AddTool(mcp.NewTool("get_chunk",
-		mcp.WithDescription("Get a specific code chunk by ID with context"),
+		mcp.WithDescription("Get code chunk by ID"),
 		mcp.WithString("chunk_id", mcp.Required(), mcp.Description("Chunk ID")),
-		mcp.WithNumber("context_lines", mcp.Description("Lines of context (default 5)")),
+		mcp.WithNumber("context_lines", mcp.Description("Context lines")),
 	), s.handleGetChunk)
 
-	// get_status - Get index status
 	mcpServer.AddTool(mcp.NewTool("get_status",
-		mcp.WithDescription("Get index status and statistics"),
+		mcp.WithDescription("Index status"),
 	), s.handleGetStatus)
 
-	// clear_index - Clear the index
 	mcpServer.AddTool(mcp.NewTool("clear_index",
-		mcp.WithDescription("Clear the search index"),
+		mcp.WithDescription("Clear index"),
 	), s.handleClearIndex)
 
-	// get_callers - Get callers of a symbol
+	// Call graph
 	mcpServer.AddTool(mcp.NewTool("get_callers",
-		mcp.WithDescription("Get functions that call a specific symbol"),
-		mcp.WithString("symbol", mcp.Required(), mcp.Description("Symbol name or ID")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results")),
+		mcp.WithDescription("Find callers of symbol"),
+		mcp.WithString("symbol", mcp.Required(), mcp.Description("Symbol")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleGetCallers)
 
-	// get_callees - Get what a symbol calls
 	mcpServer.AddTool(mcp.NewTool("get_callees",
-		mcp.WithDescription("Get functions called by a specific symbol"),
-		mcp.WithString("symbol", mcp.Required(), mcp.Description("Symbol name or ID")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results")),
+		mcp.WithDescription("Find callees of symbol"),
+		mcp.WithString("symbol", mcp.Required(), mcp.Description("Symbol")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleGetCallees)
 
-	// get_symbols - List symbols
+	// Symbol analysis
 	mcpServer.AddTool(mcp.NewTool("get_symbols",
-		mcp.WithDescription("Search for symbols by name with optional filtering by line count"),
-		mcp.WithString("query", mcp.Description("Symbol name pattern")),
-		mcp.WithString("kind", mcp.Description("Symbol kind: function, type, variable, constant, interface, method")),
-		mcp.WithNumber("min_lines", mcp.Description("Minimum line count filter (e.g., 50 for functions over 50 lines)")),
-		mcp.WithString("sort_by", mcp.Description("Sort order: 'lines' (longest first), 'name' (alphabetical)")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results")),
+		mcp.WithDescription("Search symbols"),
+		mcp.WithString("query", mcp.Description("Pattern")),
+		mcp.WithString("kind", mcp.Description("function|type|variable|constant|interface|method")),
+		mcp.WithNumber("min_lines", mcp.Description("Min lines")),
+		mcp.WithString("sort_by", mcp.Description("lines|name")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleGetSymbols)
 
-	// get_refactoring_candidates - Find code that may need refactoring
 	mcpServer.AddTool(mcp.NewTool("get_refactoring_candidates",
-		mcp.WithDescription("Find functions and code that may need refactoring (long functions, high complexity, deep nesting)"),
-		mcp.WithNumber("min_lines", mcp.Description("Minimum function length to flag (default: 50)")),
-		mcp.WithNumber("max_complexity", mcp.Description("Maximum cyclomatic complexity before flagging (default: 10)")),
-		mcp.WithNumber("max_nesting", mcp.Description("Maximum nesting depth before flagging (default: 4)")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results per category (default: 20)")),
+		mcp.WithDescription("Find refactoring candidates"),
+		mcp.WithNumber("min_lines", mcp.Description("Min length")),
+		mcp.WithNumber("max_complexity", mcp.Description("Max complexity")),
+		mcp.WithNumber("max_nesting", mcp.Description("Max nesting")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleGetRefactoringCandidates)
 
-	// get_entry_points - Find entry points
 	mcpServer.AddTool(mcp.NewTool("get_entry_points",
-		mcp.WithDescription("Get main entry points (main functions, HTTP handlers, tests, init functions)"),
-		mcp.WithNumber("limit", mcp.Description("Maximum results")),
-		mcp.WithString("type", mcp.Description("Filter by type: main, handler, test, init, cli")),
+		mcp.WithDescription("Find entry points"),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
+		mcp.WithString("type", mcp.Description("main|handler|test|init|cli")),
 	), s.handleGetEntryPoints)
 
-	// get_import_graph - Get import relationships
 	mcpServer.AddTool(mcp.NewTool("get_import_graph",
-		mcp.WithDescription("Get import/dependency graph between modules"),
-		mcp.WithNumber("limit", mcp.Description("Maximum import edges to return")),
+		mcp.WithDescription("Module dependencies"),
+		mcp.WithNumber("limit", mcp.Description("Max edges")),
 	), s.handleGetImportGraph)
 
-	// fuzzy_search - Fuzzy search for symbols and files
+	// Text search
 	mcpServer.AddTool(mcp.NewTool("fuzzy_search",
-		mcp.WithDescription("Fuzzy search for symbols by name (handles typos, partial matches, camelCase/snake_case)"),
-		mcp.WithString("query", mcp.Required(), mcp.Description("Search query (e.g., 'getUserId', 'hndlReq', 'parse_cfg')")),
-		mcp.WithString("kind", mcp.Description("Symbol kind filter: function, type, variable, constant, interface, method")),
-		mcp.WithString("type", mcp.Description("Search type: symbols (default), files")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 20)")),
+		mcp.WithDescription("Fuzzy symbol/file search"),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Query")),
+		mcp.WithString("kind", mcp.Description("function|type|variable|constant|interface|method")),
+		mcp.WithString("type", mcp.Description("symbols|files")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleFuzzySearch)
 
-	// grep_code - Fast exact text search
 	mcpServer.AddTool(mcp.NewTool("grep_code",
-		mcp.WithDescription("Fast exact text search with context lines (grep-like). Uses ripgrep if available, falls back to Go regexp."),
-		mcp.WithString("pattern", mcp.Required(), mcp.Description("Search pattern (regex or literal string)")),
-		mcp.WithString("path", mcp.Description("Glob pattern to filter files (e.g., '**/*.go', 'src/**/*.ts')")),
-		mcp.WithNumber("context_lines", mcp.Description("Lines of context before and after match (default 3)")),
-		mcp.WithNumber("max_results", mcp.Description("Maximum number of matches to return (default 50)")),
-		mcp.WithBoolean("case_sensitive", mcp.Description("Case sensitive search (default false)")),
-		mcp.WithBoolean("indexed_only", mcp.Description("Only search in indexed files (default true)")),
-		mcp.WithBoolean("literal", mcp.Description("Treat pattern as literal string, not regex (default false)")),
+		mcp.WithDescription("Text search (grep)"),
+		mcp.WithString("pattern", mcp.Required(), mcp.Description("Pattern")),
+		mcp.WithString("path", mcp.Description("File glob")),
+		mcp.WithNumber("context_lines", mcp.Description("Context")),
+		mcp.WithNumber("max_results", mcp.Description("Max matches")),
+		mcp.WithBoolean("case_sensitive", mcp.Description("Case sensitive")),
+		mcp.WithBoolean("indexed_only", mcp.Description("Indexed only")),
+		mcp.WithBoolean("literal", mcp.Description("Literal mode")),
 	), s.handleGrepCode)
 
-	// get_file_summary - Get comprehensive file summary
 	mcpServer.AddTool(mcp.NewTool("get_file_summary",
-		mcp.WithDescription("Get comprehensive summary of a source file: imports, exports, functions, types, complexity, line counts"),
-		mcp.WithString("file", mcp.Required(), mcp.Description("File path (relative to project root)")),
-		mcp.WithBoolean("quick", mcp.Description("Quick summary (only line counts, no parsing)")),
+		mcp.WithDescription("File summary"),
+		mcp.WithString("file", mcp.Required(), mcp.Description("Path")),
+		mcp.WithBoolean("quick", mcp.Description("Quick mode")),
 	), s.handleGetFileSummary)
 
-	// get_project_tree - Get hierarchical project structure
 	mcpServer.AddTool(mcp.NewTool("get_project_tree",
-		mcp.WithDescription("Get hierarchical tree structure of the project directory"),
-		mcp.WithString("path", mcp.Description("Subdirectory path to start from (default: project root)")),
-		mcp.WithNumber("depth", mcp.Description("Maximum depth to traverse (default: 5)")),
-		mcp.WithBoolean("include_files", mcp.Description("Include files in the tree (default: true)")),
-		mcp.WithBoolean("include_hidden", mcp.Description("Include hidden files/directories (default: false)")),
-		mcp.WithBoolean("show_indexed", mcp.Description("Show which files are indexed (default: true)")),
-		mcp.WithString("format", mcp.Description("Output format: json, text, markdown (default: json)")),
+		mcp.WithDescription("Directory tree"),
+		mcp.WithString("path", mcp.Description("Subpath")),
+		mcp.WithNumber("depth", mcp.Description("Max depth")),
+		mcp.WithBoolean("include_files", mcp.Description("Include files")),
+		mcp.WithBoolean("include_hidden", mcp.Description("Include hidden")),
+		mcp.WithBoolean("show_indexed", mcp.Description("Show indexed")),
+		mcp.WithString("format", mcp.Description("json|text|markdown")),
 	), s.handleGetProjectTree)
 
-	// Setup Wizard tools
-
-	// detect_environment - Detect available providers and project info
+	// Configuration
 	mcpServer.AddTool(mcp.NewTool("detect_environment",
-		mcp.WithDescription("Detect available embedding providers, project structure, and get configuration recommendations"),
+		mcp.WithDescription("Detect environment"),
 	), s.handleDetectEnvironment)
 
-	// validate_config - Validate current configuration
 	mcpServer.AddTool(mcp.NewTool("validate_config",
-		mcp.WithDescription("Validate the current configuration and test provider connections"),
+		mcp.WithDescription("Validate config"),
 	), s.handleValidateConfig)
 
-	// get_config - Get current configuration
 	mcpServer.AddTool(mcp.NewTool("get_config",
-		mcp.WithDescription("Get the current configuration settings"),
+		mcp.WithDescription("Get config"),
 	), s.handleGetConfig)
 
-	// apply_recommendation - Apply a configuration recommendation
 	mcpServer.AddTool(mcp.NewTool("apply_recommendation",
-		mcp.WithDescription("Apply a configuration recommendation (primary, low_memory, high_quality, fast_index)"),
-		mcp.WithString("preset", mcp.Required(), mcp.Description("Preset to apply: primary, low_memory, high_quality, fast_index")),
+		mcp.WithDescription("Apply config preset"),
+		mcp.WithString("preset", mcp.Required(), mcp.Description("primary|low_memory|high_quality|fast_index")),
 	), s.handleApplyRecommendation)
 
-	// init_project - Interactive project initialization wizard
 	mcpServer.AddTool(mcp.NewTool("init_project",
-		mcp.WithDescription("Initialize project with interactive setup wizard. Returns available options based on detected environment, or applies selections if provided."),
-		mcp.WithString("preset", mcp.Description("Quick setup with preset: recommended, quality, fast, custom")),
-		mcp.WithObject("selections", mcp.Description("Custom selections map: {embedding: 'ollama'|'openai', reranker: 'enabled'|'disabled', chunking: 'treesitter'|'simple', search: 'hybrid'|'vector'|'bm25'}")),
-		mcp.WithBoolean("start_indexing", mcp.Description("Start indexing after configuration (default: false)")),
+		mcp.WithDescription("Initialize project"),
+		mcp.WithString("preset", mcp.Description("recommended|quality|fast|custom")),
+		mcp.WithObject("selections", mcp.Description("Config map")),
+		mcp.WithBoolean("start_indexing", mcp.Description("Start indexing")),
 	), s.handleInitProject)
 
-	// Analysis tools
-
-	// get_blame - Get git blame information
+	// Git analysis
 	mcpServer.AddTool(mcp.NewTool("get_blame",
-		mcp.WithDescription("Get git blame information for a file or line range"),
-		mcp.WithString("file", mcp.Required(), mcp.Description("File path (relative to project root)")),
-		mcp.WithNumber("start_line", mcp.Description("Start line (optional, for range)")),
-		mcp.WithNumber("end_line", mcp.Description("End line (optional, for range)")),
+		mcp.WithDescription("Git blame"),
+		mcp.WithString("file", mcp.Required(), mcp.Description("Path")),
+		mcp.WithNumber("start_line", mcp.Description("Start")),
+		mcp.WithNumber("end_line", mcp.Description("End")),
 	), s.handleGetBlame)
 
-	// get_dead_code - Find potentially unused code
 	mcpServer.AddTool(mcp.NewTool("get_dead_code",
-		mcp.WithDescription("Find potentially unused/dead code in the codebase"),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 20)")),
-		mcp.WithString("type", mcp.Description("Type to search: all, functions, types (default: functions)")),
+		mcp.WithDescription("Find dead code"),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
+		mcp.WithString("type", mcp.Description("all|functions|types")),
 	), s.handleGetDeadCode)
 
-	// get_complexity - Get code complexity metrics
 	mcpServer.AddTool(mcp.NewTool("get_complexity",
-		mcp.WithDescription("Get code complexity metrics for a file or function"),
-		mcp.WithString("file", mcp.Required(), mcp.Description("File path (relative to project root)")),
-		mcp.WithNumber("start_line", mcp.Description("Start line (optional, for range)")),
-		mcp.WithNumber("end_line", mcp.Description("End line (optional, for range)")),
+		mcp.WithDescription("Complexity metrics"),
+		mcp.WithString("file", mcp.Required(), mcp.Description("Path")),
+		mcp.WithNumber("start_line", mcp.Description("Start")),
+		mcp.WithNumber("end_line", mcp.Description("End")),
 	), s.handleGetComplexity)
 
-	// Git History tools - 3D temporal search
-
-	// search_history - Semantic search across git history
+	// Git history
 	mcpServer.AddTool(mcp.NewTool("search_history",
-		mcp.WithDescription("Semantic search across git history - find changes by description, time range, author, or affected code"),
-		mcp.WithString("query", mcp.Required(), mcp.Description("Search query (e.g., 'authentication bug fix', 'memory leak')")),
-		mcp.WithString("time_from", mcp.Description("Start date (ISO format: 2024-01-01) or commit hash")),
-		mcp.WithString("time_to", mcp.Description("End date (ISO format) or commit hash (default: now)")),
-		mcp.WithArray("authors", mcp.Description("Filter by author emails")),
-		mcp.WithArray("paths", mcp.Description("Filter by file paths (glob patterns, e.g., 'src/auth/*')")),
-		mcp.WithArray("change_types", mcp.Description("Filter by change type: A (added), M (modified), D (deleted), R (renamed)")),
-		mcp.WithArray("functions", mcp.Description("Filter by affected function names")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 10)")),
-		mcp.WithBoolean("include_diff", mcp.Description("Include diff content in results")),
+		mcp.WithDescription("Search git history"),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Query")),
+		mcp.WithString("time_from", mcp.Description("From date/commit")),
+		mcp.WithString("time_to", mcp.Description("To date/commit")),
+		mcp.WithArray("authors", mcp.Description("Authors")),
+		mcp.WithArray("paths", mcp.Description("Paths")),
+		mcp.WithArray("change_types", mcp.Description("A|M|D|R")),
+		mcp.WithArray("functions", mcp.Description("Functions")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
+		mcp.WithBoolean("include_diff", mcp.Description("Include diff")),
 	), s.handleSearchHistory)
 
-	// get_chunk_history - History of a specific chunk/function
 	mcpServer.AddTool(mcp.NewTool("get_chunk_history",
-		mcp.WithDescription("Get the change history of a specific code chunk or function"),
-		mcp.WithString("chunk_id", mcp.Description("Chunk ID to get history for")),
-		mcp.WithString("symbol", mcp.Description("Symbol/function name to get history for")),
-		mcp.WithString("file", mcp.Description("File path (used with symbol)")),
-		mcp.WithNumber("limit", mcp.Description("Maximum history entries (default 20)")),
+		mcp.WithDescription("Chunk history"),
+		mcp.WithString("chunk_id", mcp.Description("Chunk ID")),
+		mcp.WithString("symbol", mcp.Description("Symbol")),
+		mcp.WithString("file", mcp.Description("Path")),
+		mcp.WithNumber("limit", mcp.Description("Max entries")),
 	), s.handleGetChunkHistory)
 
-	// get_code_evolution - How code evolved over time
 	mcpServer.AddTool(mcp.NewTool("get_code_evolution",
-		mcp.WithDescription("Get detailed evolution of a symbol/function over time"),
-		mcp.WithString("symbol", mcp.Required(), mcp.Description("Symbol/function name")),
-		mcp.WithString("file", mcp.Description("File path to narrow down search")),
+		mcp.WithDescription("Symbol evolution"),
+		mcp.WithString("symbol", mcp.Required(), mcp.Description("Symbol")),
+		mcp.WithString("file", mcp.Description("Path")),
 	), s.handleGetCodeEvolution)
 
-	// find_regression - Find potential regression-introducing commits
 	mcpServer.AddTool(mcp.NewTool("find_regression",
-		mcp.WithDescription("Find commits that might have introduced a bug or regression"),
-		mcp.WithString("description", mcp.Required(), mcp.Description("Description of the bug/problem")),
-		mcp.WithString("known_good", mcp.Description("Commit hash/tag where it worked (optional)")),
-		mcp.WithString("known_bad", mcp.Description("Commit hash/tag where it's broken (default: HEAD)")),
-		mcp.WithArray("paths", mcp.Description("Limit search to specific paths")),
-		mcp.WithNumber("limit", mcp.Description("Maximum candidates to return (default 10)")),
+		mcp.WithDescription("Find regression commits"),
+		mcp.WithString("description", mcp.Required(), mcp.Description("Bug description")),
+		mcp.WithString("known_good", mcp.Description("Good commit")),
+		mcp.WithString("known_bad", mcp.Description("Bad commit")),
+		mcp.WithArray("paths", mcp.Description("Paths")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
 	), s.handleFindRegression)
 
-	// get_commit_context - Detailed view of a commit
 	mcpServer.AddTool(mcp.NewTool("get_commit_context",
-		mcp.WithDescription("Get detailed information about a commit and all its changes"),
-		mcp.WithString("commit", mcp.Required(), mcp.Description("Commit hash (full or short)")),
-		mcp.WithBoolean("include_diff", mcp.Description("Include diff content")),
+		mcp.WithDescription("Commit details"),
+		mcp.WithString("commit", mcp.Required(), mcp.Description("Hash")),
+		mcp.WithBoolean("include_diff", mcp.Description("Include diff")),
 	), s.handleGetCommitContext)
 
-	// get_contributor_insights - Who knows this code
 	mcpServer.AddTool(mcp.NewTool("get_contributor_insights",
-		mcp.WithDescription("Get contributor expertise and activity for code areas"),
-		mcp.WithArray("paths", mcp.Description("File paths/patterns to analyze")),
-		mcp.WithString("symbol", mcp.Description("Symbol/function to analyze")),
+		mcp.WithDescription("Contributor expertise"),
+		mcp.WithArray("paths", mcp.Description("Paths")),
+		mcp.WithString("symbol", mcp.Description("Symbol")),
 	), s.handleGetContributorInsights)
 
-	// index_git_history - Index git history for temporal search
 	mcpServer.AddTool(mcp.NewTool("index_git_history",
-		mcp.WithDescription("Index git history for semantic temporal search"),
-		mcp.WithString("since", mcp.Description("Index commits since date (ISO format) or 'all'")),
-		mcp.WithBoolean("force", mcp.Description("Force reindex all commits")),
+		mcp.WithDescription("Index git history"),
+		mcp.WithString("since", mcp.Description("Since date/all")),
+		mcp.WithBoolean("force", mcp.Description("Force reindex")),
 	), s.handleIndexGitHistory)
 
-	// get_git_history_status - Status of git history index
 	mcpServer.AddTool(mcp.NewTool("get_git_history_status",
-		mcp.WithDescription("Get status and statistics of indexed git history"),
+		mcp.WithDescription("Git history status"),
 	), s.handleGetGitHistoryStatus)
 
-	// Memory tools - Persistent context and knowledge
-
-	// memory_store - Store a memory
+	// Memory
 	mcpServer.AddTool(mcp.NewTool("memory_store",
-		mcp.WithDescription("Store a memory/knowledge entry for persistent context"),
-		mcp.WithString("content", mcp.Required(), mcp.Description("Memory content")),
-		mcp.WithString("category", mcp.Description("Category: decision, context, fact, note, error, review")),
-		mcp.WithArray("tags", mcp.Description("Tags for organization")),
-		mcp.WithNumber("importance", mcp.Description("Importance score 0-1 (default 0.5)")),
-		mcp.WithString("channel", mcp.Description("Channel/branch for context isolation")),
-		mcp.WithNumber("ttl_days", mcp.Description("Time-to-live in days (optional)")),
+		mcp.WithDescription("Store memory"),
+		mcp.WithString("content", mcp.Required(), mcp.Description("Content")),
+		mcp.WithString("category", mcp.Description("decision|context|fact|note|error|review")),
+		mcp.WithArray("tags", mcp.Description("Tags")),
+		mcp.WithNumber("importance", mcp.Description("Score 0-1")),
+		mcp.WithString("channel", mcp.Description("Channel")),
+		mcp.WithNumber("ttl_days", mcp.Description("TTL days")),
 	), s.handleMemoryStore)
 
-	// memory_recall - Recall memories
 	mcpServer.AddTool(mcp.NewTool("memory_recall",
-		mcp.WithDescription("Recall memories using semantic search"),
-		mcp.WithString("query", mcp.Required(), mcp.Description("Search query")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 10)")),
-		mcp.WithString("channel", mcp.Description("Channel/branch filter")),
-		mcp.WithArray("categories", mcp.Description("Filter by categories")),
-		mcp.WithArray("tags", mcp.Description("Filter by tags")),
-		mcp.WithNumber("min_importance", mcp.Description("Minimum importance score")),
+		mcp.WithDescription("Search memories"),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Query")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
+		mcp.WithString("channel", mcp.Description("Channel")),
+		mcp.WithArray("categories", mcp.Description("Categories")),
+		mcp.WithArray("tags", mcp.Description("Tags")),
+		mcp.WithNumber("min_importance", mcp.Description("Min importance")),
 	), s.handleMemoryRecall)
 
-	// memory_forget - Delete a memory
 	mcpServer.AddTool(mcp.NewTool("memory_forget",
-		mcp.WithDescription("Delete a specific memory"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Memory ID to delete")),
+		mcp.WithDescription("Delete memory"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
 	), s.handleMemoryForget)
 
-	// memory_checkpoint - Create a checkpoint
 	mcpServer.AddTool(mcp.NewTool("memory_checkpoint",
-		mcp.WithDescription("Create a checkpoint/snapshot of current memories"),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Checkpoint name")),
-		mcp.WithString("description", mcp.Description("Checkpoint description")),
-		mcp.WithString("channel", mcp.Description("Channel/branch")),
+		mcp.WithDescription("Checkpoint memories"),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Name")),
+		mcp.WithString("description", mcp.Description("Description")),
+		mcp.WithString("channel", mcp.Description("Channel")),
 	), s.handleMemoryCheckpoint)
 
-	// memory_restore - Restore from checkpoint
 	mcpServer.AddTool(mcp.NewTool("memory_restore",
-		mcp.WithDescription("Restore memories from a checkpoint"),
-		mcp.WithString("checkpoint_id", mcp.Required(), mcp.Description("Checkpoint ID to restore")),
+		mcp.WithDescription("Restore checkpoint"),
+		mcp.WithString("checkpoint_id", mcp.Required(), mcp.Description("ID")),
 	), s.handleMemoryRestore)
 
-	// memory_stats - Get memory statistics
 	mcpServer.AddTool(mcp.NewTool("memory_stats",
-		mcp.WithDescription("Get memory statistics"),
-		mcp.WithString("channel", mcp.Description("Channel/branch filter")),
+		mcp.WithDescription("Memory stats"),
+		mcp.WithString("channel", mcp.Description("Channel")),
 	), s.handleMemoryStats)
 
-	// Todo/Task tools
-
-	// todo_create - Create a todo
+	// Tasks
 	mcpServer.AddTool(mcp.NewTool("todo_create",
-		mcp.WithDescription("Create a new todo/task"),
-		mcp.WithString("title", mcp.Required(), mcp.Description("Task title")),
-		mcp.WithString("description", mcp.Description("Task description")),
-		mcp.WithString("priority", mcp.Description("Priority: low, medium, high, urgent (default medium)")),
-		mcp.WithArray("tags", mcp.Description("Tags for organization")),
-		mcp.WithString("channel", mcp.Description("Channel/branch for context isolation")),
-		mcp.WithString("parent_id", mcp.Description("Parent task ID for subtasks")),
-		mcp.WithString("due_date", mcp.Description("Due date (ISO format: 2024-01-01)")),
-		mcp.WithString("effort", mcp.Description("Effort estimate (e.g., '2h', '1d', 'S/M/L')")),
+		mcp.WithDescription("Create task"),
+		mcp.WithString("title", mcp.Required(), mcp.Description("Title")),
+		mcp.WithString("description", mcp.Description("Description")),
+		mcp.WithString("priority", mcp.Description("low|medium|high|urgent")),
+		mcp.WithArray("tags", mcp.Description("Tags")),
+		mcp.WithString("channel", mcp.Description("Channel")),
+		mcp.WithString("parent_id", mcp.Description("Parent ID")),
+		mcp.WithString("due_date", mcp.Description("Due date")),
+		mcp.WithString("effort", mcp.Description("Effort")),
 	), s.handleTodoCreate)
 
-	// todo_list - List todos
 	mcpServer.AddTool(mcp.NewTool("todo_list",
-		mcp.WithDescription("List todos/tasks"),
-		mcp.WithString("channel", mcp.Description("Channel/branch filter")),
-		mcp.WithArray("statuses", mcp.Description("Filter by status: pending, in_progress, completed, cancelled, blocked")),
-		mcp.WithArray("priorities", mcp.Description("Filter by priority")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 20)")),
-		mcp.WithBoolean("include_completed", mcp.Description("Include completed tasks")),
+		mcp.WithDescription("List tasks"),
+		mcp.WithString("channel", mcp.Description("Channel")),
+		mcp.WithArray("statuses", mcp.Description("pending|in_progress|completed|cancelled|blocked")),
+		mcp.WithArray("priorities", mcp.Description("Priorities")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
+		mcp.WithBoolean("include_completed", mcp.Description("Include done")),
 	), s.handleTodoList)
 
-	// todo_search - Search todos
 	mcpServer.AddTool(mcp.NewTool("todo_search",
-		mcp.WithDescription("Search todos using semantic similarity"),
-		mcp.WithString("query", mcp.Required(), mcp.Description("Search query")),
-		mcp.WithNumber("limit", mcp.Description("Maximum results (default 10)")),
-		mcp.WithString("channel", mcp.Description("Channel/branch filter")),
+		mcp.WithDescription("Search tasks"),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Query")),
+		mcp.WithNumber("limit", mcp.Description("Max results")),
+		mcp.WithString("channel", mcp.Description("Channel")),
 		mcp.WithBoolean("include_children", mcp.Description("Include subtasks")),
 	), s.handleTodoSearch)
 
-	// todo_update - Update a todo
 	mcpServer.AddTool(mcp.NewTool("todo_update",
-		mcp.WithDescription("Update a todo/task"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Task ID")),
-		mcp.WithString("title", mcp.Description("New title")),
-		mcp.WithString("description", mcp.Description("New description")),
-		mcp.WithString("status", mcp.Description("New status: pending, in_progress, completed, cancelled, blocked")),
-		mcp.WithString("priority", mcp.Description("New priority")),
-		mcp.WithNumber("progress", mcp.Description("Progress percentage 0-100")),
+		mcp.WithDescription("Update task"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
+		mcp.WithString("title", mcp.Description("Title")),
+		mcp.WithString("description", mcp.Description("Description")),
+		mcp.WithString("status", mcp.Description("pending|in_progress|completed|cancelled|blocked")),
+		mcp.WithString("priority", mcp.Description("Priority")),
+		mcp.WithNumber("progress", mcp.Description("Progress 0-100")),
 	), s.handleTodoUpdate)
 
-	// todo_complete - Mark todo as complete
 	mcpServer.AddTool(mcp.NewTool("todo_complete",
-		mcp.WithDescription("Mark a todo as completed"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Task ID to complete")),
+		mcp.WithDescription("Complete task"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
 	), s.handleTodoComplete)
 
-	// todo_delete - Delete a todo
 	mcpServer.AddTool(mcp.NewTool("todo_delete",
-		mcp.WithDescription("Delete a todo/task"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Task ID to delete")),
+		mcp.WithDescription("Delete task"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("ID")),
 	), s.handleTodoDelete)
 
-	// todo_stats - Get todo statistics
 	mcpServer.AddTool(mcp.NewTool("todo_stats",
-		mcp.WithDescription("Get todo statistics"),
-		mcp.WithString("channel", mcp.Description("Channel/branch filter")),
+		mcp.WithDescription("Task stats"),
+		mcp.WithString("channel", mcp.Description("Channel")),
 	), s.handleTodoStats)
 }
 
