@@ -179,6 +179,18 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) {
 		mcp.WithNumber("limit", mcp.Description("Maximum results (default 20)")),
 	), s.handleFuzzySearch)
 
+	// grep_code - Fast exact text search
+	mcpServer.AddTool(mcp.NewTool("grep_code",
+		mcp.WithDescription("Fast exact text search with context lines (grep-like). Uses ripgrep if available, falls back to Go regexp."),
+		mcp.WithString("pattern", mcp.Required(), mcp.Description("Search pattern (regex or literal string)")),
+		mcp.WithString("path", mcp.Description("Glob pattern to filter files (e.g., '**/*.go', 'src/**/*.ts')")),
+		mcp.WithNumber("context_lines", mcp.Description("Lines of context before and after match (default 3)")),
+		mcp.WithNumber("max_results", mcp.Description("Maximum number of matches to return (default 50)")),
+		mcp.WithBoolean("case_sensitive", mcp.Description("Case sensitive search (default false)")),
+		mcp.WithBoolean("indexed_only", mcp.Description("Only search in indexed files (default true)")),
+		mcp.WithBoolean("literal", mcp.Description("Treat pattern as literal string, not regex (default false)")),
+	), s.handleGrepCode)
+
 	// get_file_summary - Get comprehensive file summary
 	mcpServer.AddTool(mcp.NewTool("get_file_summary",
 		mcp.WithDescription("Get comprehensive summary of a source file: imports, exports, functions, types, complexity, line counts"),

@@ -60,6 +60,7 @@ mcp-codewizard/
 |------|-------------|
 | `index_codebase` | Index project |
 | `search_code` | Semantic code search |
+| `grep_code` | Fast exact text search (grep-like, uses ripgrep if available) |
 | `get_chunk` | Get chunk with context |
 | `get_status` | Index status |
 | `clear_index` | Delete index |
