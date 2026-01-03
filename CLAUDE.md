@@ -77,6 +77,7 @@ mcp-codewizard/
 | `get_dead_code` | Unused code |
 | `fuzzy_search` | Fuzzy search for symbols/files (handles typos, camelCase) |
 | `get_file_summary` | Comprehensive file summary (imports, exports, functions, complexity) |
+| `get_project_tree` | Hierarchical project structure (json, text, markdown formats) |
 
 ### Git History
 | Tool | Description |

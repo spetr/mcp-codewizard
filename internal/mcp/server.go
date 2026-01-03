@@ -198,6 +198,17 @@ func (s *Server) registerTools(mcpServer *server.MCPServer) {
 		mcp.WithBoolean("quick", mcp.Description("Quick summary (only line counts, no parsing)")),
 	), s.handleGetFileSummary)
 
+	// get_project_tree - Get hierarchical project structure
+	mcpServer.AddTool(mcp.NewTool("get_project_tree",
+		mcp.WithDescription("Get hierarchical tree structure of the project directory"),
+		mcp.WithString("path", mcp.Description("Subdirectory path to start from (default: project root)")),
+		mcp.WithNumber("depth", mcp.Description("Maximum depth to traverse (default: 5)")),
+		mcp.WithBoolean("include_files", mcp.Description("Include files in the tree (default: true)")),
+		mcp.WithBoolean("include_hidden", mcp.Description("Include hidden files/directories (default: false)")),
+		mcp.WithBoolean("show_indexed", mcp.Description("Show which files are indexed (default: true)")),
+		mcp.WithString("format", mcp.Description("Output format: json, text, markdown (default: json)")),
+	), s.handleGetProjectTree)
+
 	// Setup Wizard tools
 
 	// detect_environment - Detect available providers and project info
