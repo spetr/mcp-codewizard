@@ -39,7 +39,7 @@ import (
 )
 
 var (
-	version   = "0.2.0"
+	version   = "0.2.8"
 	cfgFile   string
 	logLevel  string
 	logFormat string
