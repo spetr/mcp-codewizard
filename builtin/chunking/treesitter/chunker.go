@@ -125,6 +125,8 @@ func (c *Chunker) getParser(lang string) (*sitter.Parser, *sitter.Language, bool
 		language = html.GetLanguage()
 	case "svelte":
 		language = svelte.GetLanguage()
+	case "vue":
+		language = html.GetLanguage() // Vue uses HTML-like syntax
 	case "lua":
 		language = lua.GetLanguage()
 	case "sql":
@@ -1028,7 +1030,7 @@ func (c *Chunker) SupportedLanguages() []string {
 		"go", "python", "javascript", "typescript", "jsx", "tsx",
 		"rust", "java", "c", "cpp", "h",
 		"ruby", "php", "csharp", "kotlin", "swift", "scala",
-		"html", "htm", "xhtml", "svelte",
+		"html", "htm", "xhtml", "svelte", "vue",
 		"lua", "sql", "proto", "protobuf", "markdown", "md",
 		"bash", "sh", "shell", "css", "dockerfile", "yaml", "yml",
 		"hcl", "tf", "terraform",
@@ -4042,6 +4044,8 @@ func (c *Chunker) chunkEmbeddedLanguage(file *types.SourceFile) ([]*types.Chunk,
 		scripts, err = extractor.ExtractFromHTML(file.Content)
 	case "svelte":
 		scripts, err = extractor.ExtractFromSvelte(file.Content)
+	case "vue":
+		scripts, err = extractor.ExtractFromVue(file.Content)
 	case "php":
 		scripts, err = extractor.ExtractFromPHP(file.Content)
 	default:
@@ -4068,6 +4072,8 @@ func (c *Chunker) extractSymbolsFromEmbeddedLanguage(file *types.SourceFile) ([]
 		scripts, err = extractor.ExtractFromHTML(file.Content)
 	case "svelte":
 		scripts, err = extractor.ExtractFromSvelte(file.Content)
+	case "vue":
+		scripts, err = extractor.ExtractFromVue(file.Content)
 	case "php":
 		scripts, err = extractor.ExtractFromPHP(file.Content)
 	default:
@@ -4094,6 +4100,8 @@ func (c *Chunker) extractRefsFromEmbeddedLanguage(file *types.SourceFile) ([]*ty
 		scripts, err = extractor.ExtractFromHTML(file.Content)
 	case "svelte":
 		scripts, err = extractor.ExtractFromSvelte(file.Content)
+	case "vue":
+		scripts, err = extractor.ExtractFromVue(file.Content)
 	case "php":
 		scripts, err = extractor.ExtractFromPHP(file.Content)
 	default:

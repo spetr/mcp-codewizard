@@ -98,6 +98,19 @@ func (e *EmbeddedJSExtractor) ExtractFromSvelte(content []byte) ([]ExtractedScri
 	return scripts, nil
 }
 
+// ExtractFromVue extracts JavaScript from Vue single-file components.
+// Vue files have <template>, <script>, and <style> sections similar to HTML.
+func (e *EmbeddedJSExtractor) ExtractFromVue(content []byte) ([]ExtractedScript, error) {
+	// Vue files use HTML-like syntax, so we can use the HTML parser
+	tree, err := e.htmlParser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Vue: %w", err)
+	}
+	defer tree.Close()
+
+	return e.extractScriptsFromHTMLTree(tree.RootNode(), string(content)), nil
+}
+
 // ExtractFromPHP extracts JavaScript from PHP files.
 // Handles <?php ?>, <? ?> (short tags), and <?= ?> (echo shorthand).
 func (e *EmbeddedJSExtractor) ExtractFromPHP(content []byte) ([]ExtractedScript, error) {
@@ -481,7 +494,7 @@ func (c *Chunker) ExtractRefsFromEmbeddedJS(file *types.SourceFile, scripts []Ex
 // IsEmbeddedJSLanguage returns true if the language embeds JavaScript.
 func IsEmbeddedJSLanguage(lang string) bool {
 	switch lang {
-	case "html", "htm", "xhtml", "svelte", "php":
+	case "html", "htm", "xhtml", "svelte", "vue", "php":
 		return true
 	}
 	return false

@@ -124,7 +124,7 @@ func DefaultConfig() *Config {
 		Index: IndexConfig{
 			Include: []string{
 				// Core languages
-				"**/*.go", "**/*.py", "**/*.js", "**/*.ts",
+				"**/*.go", "**/*.py", "**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts",
 				"**/*.jsx", "**/*.tsx", "**/*.rs", "**/*.java",
 				"**/*.c", "**/*.cpp", "**/*.cc", "**/*.cxx", "**/*.h", "**/*.hpp",
 				// Additional languages
@@ -141,7 +141,7 @@ func DefaultConfig() *Config {
 				"**/*.ps1", "**/*.psm1", "**/*.psd1",
 				"**/*.r", "**/*.R",
 				// Config/markup
-				"**/*.html", "**/*.htm", "**/*.svelte",
+				"**/*.html", "**/*.htm", "**/*.xhtml", "**/*.svelte", "**/*.vue",
 				"**/*.css", "**/*.yaml", "**/*.yml",
 				"**/*.toml", "**/*.json",
 				"**/*.tf", "**/*.hcl", "**/*.cue",
