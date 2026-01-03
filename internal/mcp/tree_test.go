@@ -97,13 +97,25 @@ func TestBuildTree(t *testing.T) {
 
 	srcDir := filepath.Join(tmpDir, "src")
 	testsDir := filepath.Join(tmpDir, "tests")
-	os.Mkdir(srcDir, 0755)
-	os.Mkdir(testsDir, 0755)
+	if err := os.Mkdir(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(testsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
-	os.WriteFile(filepath.Join(srcDir, "main.go"), []byte("package main"), 0644)
-	os.WriteFile(filepath.Join(srcDir, "utils.go"), []byte("package main"), 0644)
-	os.WriteFile(filepath.Join(testsDir, "main_test.go"), []byte("package main"), 0644)
-	os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Test"), 0644)
+	if err := os.WriteFile(filepath.Join(srcDir, "main.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "utils.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(testsDir, "main_test.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Test"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	s := &Server{
 		projectDir: tmpDir,
@@ -139,8 +151,12 @@ func TestBuildTreeDepthLimit(t *testing.T) {
 
 	// Create nested structure
 	nested := filepath.Join(tmpDir, "a", "b", "c", "d", "e")
-	os.MkdirAll(nested, 0755)
-	os.WriteFile(filepath.Join(nested, "deep.go"), []byte("package main"), 0644)
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "deep.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	s := &Server{
 		projectDir: tmpDir,
@@ -172,10 +188,18 @@ func TestBuildTreeDepthLimit(t *testing.T) {
 func TestBuildTreeExcludeHidden(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	os.WriteFile(filepath.Join(tmpDir, "visible.go"), []byte("package main"), 0644)
-	os.WriteFile(filepath.Join(tmpDir, ".hidden.go"), []byte("package main"), 0644)
-	os.Mkdir(filepath.Join(tmpDir, ".git"), 0755)
-	os.WriteFile(filepath.Join(tmpDir, ".git", "config"), []byte("config"), 0644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "visible.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, ".hidden.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(tmpDir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, ".git", "config"), []byte("config"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	s := &Server{
 		projectDir: tmpDir,
@@ -183,7 +207,7 @@ func TestBuildTreeExcludeHidden(t *testing.T) {
 	}
 
 	// Without hidden files
-	root, stats, err := s.buildTree(context.Background(), tmpDir, "", 5, 0, true, false, nil)
+	_, stats, err := s.buildTree(context.Background(), tmpDir, "", 5, 0, true, false, nil)
 	if err != nil {
 		t.Fatalf("buildTree failed: %v", err)
 	}
@@ -193,7 +217,7 @@ func TestBuildTreeExcludeHidden(t *testing.T) {
 	}
 
 	// With hidden files
-	root, stats, err = s.buildTree(context.Background(), tmpDir, "", 5, 0, true, true, nil)
+	_, stats, err = s.buildTree(context.Background(), tmpDir, "", 5, 0, true, true, nil)
 	if err != nil {
 		t.Fatalf("buildTree failed: %v", err)
 	}
@@ -201,8 +225,6 @@ func TestBuildTreeExcludeHidden(t *testing.T) {
 	if stats.files < 2 {
 		t.Errorf("with hidden: stats.files = %d, want >= 2", stats.files)
 	}
-
-	_ = root // avoid unused variable
 }
 
 func TestFormatTreeAsText(t *testing.T) {
