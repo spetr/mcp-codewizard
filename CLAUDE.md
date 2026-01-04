@@ -45,6 +45,48 @@ mcp-codewizard/
 | Reranker | `Rerank(query, docs) → []RerankResult` | Re-rank results |
 | VectorStore | `Search/Store/GetCallers` | Store and search vectors |
 
+## MCP Modes
+
+The server supports three tool registration modes to optimize LLM context usage:
+
+| Mode | Tools | Description |
+|------|-------|-------------|
+| `hybrid` | 13 | **Default.** Essential tools direct + router for 50+ others |
+| `full` | ~60 | All tools registered individually |
+| `router` | 3 | Minimal context - only router tools |
+
+### Hybrid Mode (Default)
+
+**Directly exposed tools (1 roundtrip):**
+- `search_code` - semantic code search
+- `grep_code` - fast text/regex search
+- `get_chunk` - retrieve code by ID
+- `get_callers` - find function callers
+- `get_callees` - find function callees
+- `get_status` - index status
+- `memory_store` / `memory_recall` - persistent context
+- `todo_create` / `todo_list` - task tracking
+
+**Additional tools via router:**
+- `route(tool="...", params={...})` - invoke any tool
+- `list_tools` - discover tools by category
+- `suggest_tool` - AI suggests best tool for intent
+
+### Tool Categories (for `list_tools`)
+
+| Category | Tools |
+|----------|-------|
+| search | `fuzzy_search` |
+| analysis | `get_symbols`, `get_complexity`, `get_dead_code`, `get_entry_points`, `get_import_graph`, `get_refactoring_candidates` |
+| project | `get_file_summary`, `get_project_tree`, `index_codebase`, `clear_index` |
+| git | `search_history`, `get_blame`, `get_chunk_history`, `get_code_evolution`, `find_regression`, `get_commit_context`, `get_contributor_insights` |
+| memory | `memory_forget`, `memory_checkpoint`, `memory_restore`, `memory_stats`, `memory_merge` |
+| todo | `todo_search`, `todo_update`, `todo_complete`, `todo_delete`, `todo_stats` |
+| notes | `note_*`, `decision_*`, `issue_*` |
+| config | `get_config`, `validate_config`, `detect_environment`, `init_project` |
+| session | `session_set_context`, `session_end`, `session_get_history` |
+| github | `github_sync` |
+
 ## MCP Tools
 
 ### Setup & Config
@@ -144,6 +186,9 @@ search:
   mode: hybrid               # vector | bm25 | hybrid
   vector_weight: 0.7
   bm25_weight: 0.3
+
+mcp:
+  mode: hybrid               # hybrid (default) | full | router (see MCP Modes below)
 
 index:
   # Supports 35+ languages and formats - see full list in default config

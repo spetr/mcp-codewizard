@@ -76,11 +76,21 @@ func New(cfg Config) (*Server, error) {
 		server.WithLogging(),
 	)
 
-	// Register tools
-	s.registerTools(mcpServer)
+	// Register tools based on MCP mode
+	mode := cfg.Config.MCP.Mode
+	if mode == "" {
+		mode = "full"
+	}
 
-	// Register project memory tools
-	s.registerProjectMemoryTools(mcpServer)
+	switch mode {
+	case "router":
+		s.registerRouterTools(mcpServer)
+	case "hybrid":
+		s.registerHybridTools(mcpServer)
+	default: // "full"
+		s.registerTools(mcpServer)
+		s.registerProjectMemoryTools(mcpServer)
+	}
 
 	s.mcpServer = mcpServer
 	return s, nil

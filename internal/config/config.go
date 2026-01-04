@@ -23,6 +23,16 @@ type Config struct {
 	Limits      LimitsConfig      `mapstructure:"limits" yaml:"limits"`
 	Analysis    AnalysisConfig    `mapstructure:"analysis" yaml:"analysis"`
 	Logging     LoggingConfig     `mapstructure:"logging" yaml:"logging"`
+	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp"`
+}
+
+// MCPConfig contains MCP server configuration.
+type MCPConfig struct {
+	// Mode controls which tools are exposed:
+	// - "full": all tools registered individually (default, ~60 tools)
+	// - "router": only route, list_tools, suggest_tool (3 tools)
+	// - "hybrid": essential tools + router for others (~10 tools + router)
+	Mode string `mapstructure:"mode" yaml:"mode"`
 }
 
 // EmbeddingConfig contains embedding provider configuration.
@@ -173,6 +183,9 @@ func DefaultConfig() *Config {
 			Level:  "info",
 			Format: "text",
 		},
+		MCP: MCPConfig{
+			Mode: "hybrid",
+		},
 	}
 }
 
@@ -274,6 +287,7 @@ func Save(projectRoot string, cfg *Config) error {
 	v.Set("limits", cfg.Limits)
 	v.Set("analysis", cfg.Analysis)
 	v.Set("logging", cfg.Logging)
+	v.Set("mcp", cfg.MCP)
 
 	return v.WriteConfig()
 }
@@ -314,6 +328,14 @@ func Validate(cfg *Config) []error {
 	}
 	if cfg.Search.Mode != "" && !validSearchModes[cfg.Search.Mode] {
 		errs = append(errs, fmt.Errorf("invalid search mode: %s", cfg.Search.Mode))
+	}
+
+	// Validate MCP mode
+	validMCPModes := map[string]bool{
+		"full": true, "router": true, "hybrid": true, "": true,
+	}
+	if !validMCPModes[cfg.MCP.Mode] {
+		errs = append(errs, fmt.Errorf("invalid MCP mode: %s (valid: full, router, hybrid)", cfg.MCP.Mode))
 	}
 
 	return errs
