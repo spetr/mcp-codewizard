@@ -1256,10 +1256,9 @@ func (s *Server) handleApplyRecommendation(ctx context.Context, req mcp.CallTool
 			Provider: "sqlitevec",
 		},
 		Limits: config.LimitsConfig{
-			MaxFileSize:   "1MB",
-			MaxFiles:      50000,
-			MaxChunkTokens: 2000,
-			Workers:       recSet.Indexing.Workers,
+			MaxFileSize: "1MB",
+			MaxFiles:    50000,
+			Workers:     recSet.Indexing.Workers,
 		},
 		Analysis: config.AnalysisConfig{
 			ExtractSymbols:    true,

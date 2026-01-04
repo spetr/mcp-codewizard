@@ -17,12 +17,36 @@ import (
 
 // Default values
 const (
-	DefaultModel       = "nomic-embed-code"
-	DefaultEndpoint    = "http://localhost:11434"
-	DefaultBatchSize   = 32
-	DefaultDimensions  = 768  // nomic-embed-code default
-	DefaultMaxTokens   = 8000 // Safe limit for most embedding models (chars, roughly ~2000 tokens)
+	DefaultModel           = "nomic-embed-code"
+	DefaultEndpoint        = "http://localhost:11434"
+	DefaultBatchSize       = 32
+	DefaultDimensions      = 768  // nomic-embed-code default
+	DefaultMaxTokens       = 2048 // Conservative default for unknown models
+	DefaultMaxChars        = 8000 // Safe limit for truncation (chars, roughly ~2000 tokens)
 )
+
+// Model context windows (max tokens) for known Ollama embedding models
+var modelMaxTokens = map[string]int{
+	// Nomic models
+	"nomic-embed-text":       8192,
+	"nomic-embed-text:latest": 8192,
+	"nomic-embed-code":       2048, // Conservative - actual may be higher
+	"nomic-embed-code:latest": 2048,
+	// mxbai models
+	"mxbai-embed-large":       512,
+	"mxbai-embed-large:latest": 512,
+	// BGE models
+	"bge-m3":        8192,
+	"bge-m3:latest": 8192,
+	"bge-large":     512,
+	"bge-base":      512,
+	// Snowflake
+	"snowflake-arctic-embed":       8192,
+	"snowflake-arctic-embed:latest": 8192,
+	// all-minilm
+	"all-minilm":       256,
+	"all-minilm:latest": 256,
+}
 
 // Config contains Ollama provider configuration.
 type Config struct {
@@ -105,8 +129,9 @@ func (p *Provider) Embed(ctx context.Context, texts []string) ([][]float32, erro
 // embedSingle embeds a single text.
 func (p *Provider) embedSingle(ctx context.Context, text string) ([]float32, error) {
 	// Truncate text if too long to avoid context length errors
-	if len(text) > DefaultMaxTokens {
-		text = text[:DefaultMaxTokens]
+	// Use character limit as rough approximation (4 chars ≈ 1 token)
+	if len(text) > DefaultMaxChars {
+		text = text[:DefaultMaxChars]
 	}
 
 	// Ollama embed API request
@@ -163,6 +188,24 @@ func (p *Provider) Dimensions() int {
 		return p.dimensions
 	}
 	return DefaultDimensions
+}
+
+// MaxTokens returns the maximum context window size in tokens.
+func (p *Provider) MaxTokens() int {
+	// Check exact model name
+	if maxTokens, ok := modelMaxTokens[p.config.Model]; ok {
+		return maxTokens
+	}
+	// Check without tag suffix
+	modelBase := p.config.Model
+	if idx := strings.Index(modelBase, ":"); idx > 0 {
+		modelBase = modelBase[:idx]
+	}
+	if maxTokens, ok := modelMaxTokens[modelBase]; ok {
+		return maxTokens
+	}
+	// Default for unknown models
+	return DefaultMaxTokens
 }
 
 // MaxBatchSize returns the maximum batch size.

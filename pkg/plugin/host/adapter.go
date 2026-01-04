@@ -41,6 +41,12 @@ func (a *EmbeddingAdapter) MaxBatchSize() int {
 	return a.plugin.MaxBatchSize()
 }
 
+// MaxTokens returns the maximum context window size in tokens.
+// For plugins, we return a conservative default since we can't query the plugin.
+func (a *EmbeddingAdapter) MaxTokens() int {
+	return 2048 // Conservative default for plugins
+}
+
 // Warmup warms up the provider.
 func (a *EmbeddingAdapter) Warmup(ctx context.Context) error {
 	if ctx.Err() != nil {

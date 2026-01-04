@@ -17,6 +17,10 @@ type EmbeddingProvider interface {
 	// Dimensions returns the embedding dimension size.
 	Dimensions() int
 
+	// MaxTokens returns the maximum context window size in tokens.
+	// Returns 0 if unknown (caller should use a safe default).
+	MaxTokens() int
+
 	// MaxBatchSize returns the maximum number of texts per batch.
 	MaxBatchSize() int
 

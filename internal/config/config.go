@@ -81,12 +81,11 @@ type IndexConfig struct {
 
 // LimitsConfig contains resource limits.
 type LimitsConfig struct {
-	MaxFileSize    string        `mapstructure:"max_file_size" yaml:"max_file_size"`       // e.g., "1MB"
-	MaxFiles       int           `mapstructure:"max_files" yaml:"max_files"`               // max files to index
-	MaxChunkTokens int           `mapstructure:"max_chunk_tokens" yaml:"max_chunk_tokens"` // max tokens per chunk
-	Timeout        time.Duration `mapstructure:"timeout" yaml:"timeout"`                   // indexing timeout
-	MemoryLimit    string        `mapstructure:"memory_limit" yaml:"memory_limit"`         // memory limit
-	Workers        int           `mapstructure:"workers" yaml:"workers"`                   // parallel workers
+	MaxFileSize string        `mapstructure:"max_file_size" yaml:"max_file_size"` // e.g., "1MB"
+	MaxFiles    int           `mapstructure:"max_files" yaml:"max_files"`         // max files to index
+	Timeout     time.Duration `mapstructure:"timeout" yaml:"timeout"`             // indexing timeout
+	MemoryLimit string        `mapstructure:"memory_limit" yaml:"memory_limit"`   // memory limit
+	Workers     int           `mapstructure:"workers" yaml:"workers"`             // parallel workers
 }
 
 // AnalysisConfig contains analysis options.
@@ -168,11 +167,10 @@ func DefaultConfig() *Config {
 			UseGitIgnore: true,
 		},
 		Limits: LimitsConfig{
-			MaxFileSize:    "1MB",
-			MaxFiles:       50000,
-			MaxChunkTokens: 2000,
-			Timeout:        30 * time.Minute,
-			Workers:        0, // 0 = use runtime.NumCPU()
+			MaxFileSize: "1MB",
+			MaxFiles:    50000,
+			Timeout:     30 * time.Minute,
+			Workers:     0, // 0 = use runtime.NumCPU()
 		},
 		Analysis: AnalysisConfig{
 			ExtractSymbols:    true,

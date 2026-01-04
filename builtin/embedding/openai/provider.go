@@ -21,9 +21,30 @@ const (
 
 // Model dimensions for known models
 var modelDimensions = map[string]int{
-	"text-embedding-ada-002":    1536,
-	"text-embedding-3-small":    1536,
-	"text-embedding-3-large":    3072,
+	"text-embedding-ada-002": 1536,
+	"text-embedding-3-small": 1536,
+	"text-embedding-3-large": 3072,
+}
+
+// Model context windows (max tokens) for known models
+var modelMaxTokens = map[string]int{
+	// OpenAI models
+	"text-embedding-ada-002": 8191,
+	"text-embedding-3-small": 8191,
+	"text-embedding-3-large": 8191,
+	// Nomic models (often used via OpenAI-compatible APIs)
+	"nomic-embed-text":       8192,
+	"nomic-embed-text-v1":    8192,
+	"nomic-embed-text-v1.5":  8192,
+	"nomic-embed-code":       2048, // Conservative default for code model
+	"nomic-embed-code-7b":    2048, // LiteLLM reports 2048 for this
+	// Voyage models
+	"voyage-2":      4096,
+	"voyage-code-2": 16000,
+	"voyage-large-2": 16000,
+	// Jina models
+	"jina-embeddings-v2-base-en": 8192,
+	"jina-embeddings-v2-base-code": 8192,
 }
 
 // Config contains OpenAI provider configuration.
@@ -139,6 +160,15 @@ func (p *Provider) Dimensions() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.dimensions
+}
+
+// MaxTokens returns the maximum context window size in tokens.
+func (p *Provider) MaxTokens() int {
+	if maxTokens, ok := modelMaxTokens[p.config.Model]; ok {
+		return maxTokens
+	}
+	// Default for unknown models - conservative estimate
+	return 2048
 }
 
 // MaxBatchSize returns the maximum batch size.

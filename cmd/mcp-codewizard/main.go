@@ -979,20 +979,36 @@ func createProviders(cfg *config.Config) (provider.VectorStore, provider.Embeddi
 		return nil, nil, nil, nil, fmt.Errorf("unsupported embedding provider: %s", cfg.Embedding.Provider)
 	}
 
+	// Determine effective chunk size based on embedding model's context window
+	maxChunkSize := cfg.Chunking.MaxChunkSize
+	if modelMaxTokens := embedding.MaxTokens(); modelMaxTokens > 0 {
+		// Use 90% of model's context window as safety margin
+		safeLimit := int(float64(modelMaxTokens) * 0.90)
+		if maxChunkSize == 0 || maxChunkSize > safeLimit {
+			maxChunkSize = safeLimit
+			slog.Info("adjusted chunk size for embedding model",
+				"model_max_tokens", modelMaxTokens,
+				"chunk_size", maxChunkSize)
+		}
+	}
+	if maxChunkSize == 0 {
+		maxChunkSize = 1800 // Safe default
+	}
+
 	// Create chunker
 	var chunker provider.ChunkingStrategy
 	switch cfg.Chunking.Strategy {
 	case "treesitter":
 		chunker = tsChunker.New(tsChunker.Config{
-			MaxChunkSize: cfg.Chunking.MaxChunkSize,
+			MaxChunkSize: maxChunkSize,
 		})
 	case "simple":
 		chunker = simpleChunker.New(simpleChunker.Config{
-			MaxChunkSize: cfg.Chunking.MaxChunkSize,
+			MaxChunkSize: maxChunkSize,
 		})
 	default:
 		chunker = simpleChunker.New(simpleChunker.Config{
-			MaxChunkSize: cfg.Chunking.MaxChunkSize,
+			MaxChunkSize: maxChunkSize,
 		})
 	}
 
